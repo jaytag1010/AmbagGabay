@@ -1,1 +1,2 @@
-export default function AuthLayout({ children }: { children: React.ReactNode }) { return <main className="auth-shell"><section className="auth-brand"><div className="brand-mark">A</div><h1>AmbagGabay</h1><p>Shared expenses, guided together.</p></section>{children}</main>; }
+import Image from "next/image";
+export default function AuthLayout({ children }: { children: React.ReactNode }) { return <main className="auth-shell"><section className="auth-brand"><Image className="auth-logo" src="/branding/ambaggabay-logo.png" width={768} height={512} priority alt="AmbagGabay — Track, Share, Settle" /></section>{children}</main>; }
