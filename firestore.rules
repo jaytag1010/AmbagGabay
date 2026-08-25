@@ -28,6 +28,7 @@ service cloud.firestore {
         }
       }
       match /settlements/{settlementId} { allow read, write: if isOwner(uid); }
+      match /activities/{activityId} { allow read, write: if isOwner(uid); }
     }
     match /{document=**} { allow read, write: if false; }
   }

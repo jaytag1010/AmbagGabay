@@ -1,13 +1,184 @@
 "use client";
-import { useCallback, useRef, useState, type ChangeEvent, type FormEvent } from "react";
-import { Camera, LogOut, Trash2 } from "lucide-react";
-import { Avatar } from "@/components/ui/Avatar"; import { Button } from "@/components/ui/Button"; import { Field } from "@/components/ui/Field"; import { Notice } from "@/components/ui/Feedback"; import { PageHeader } from "@/components/ui/PageHeader"; import { useAuth } from "@/hooks/useAuth"; import { useCollectionData } from "@/hooks/useCollectionData"; import { removeProfilePicture, uploadProfilePicture, validateImage } from "@/services/profilePictures"; import { subscribeUserProfile, updateDisplayName, updateUserPhoto } from "@/services/users"; import type { UserProfile } from "@/types";
+import Link from "next/link";
+import {
+  useCallback,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+} from "react";
+import { Archive, Camera, ChevronRight, LogOut, Trash2 } from "lucide-react";
+import { Avatar } from "@/components/ui/Avatar";
+import { Button } from "@/components/ui/Button";
+import { Field } from "@/components/ui/Field";
+import { Notice } from "@/components/ui/Feedback";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { useAuth } from "@/hooks/useAuth";
+import { useCollectionData } from "@/hooks/useCollectionData";
+import { subscribeFriends } from "@/services/friends";
+import {
+  removeProfilePicture,
+  uploadProfilePicture,
+  validateImage,
+} from "@/services/profilePictures";
+import {
+  subscribeUserProfile,
+  updateDisplayName,
+  updateUserPhoto,
+} from "@/services/users";
+import type { UserProfile } from "@/types";
 export default function ProfilePage() {
- const { currentUser, refreshUser, logout } = useAuth(); const user = currentUser!;
- const subscribe = useCallback((next: (items: UserProfile[]) => void, fail: (error: Error) => void) => subscribeUserProfile(user.uid, value => next(value ? [value] : []), fail), [user.uid]);
- const profile = useCollectionData(subscribe).items[0]; const input = useRef<HTMLInputElement>(null); const [busy, setBusy] = useState(false); const [message, setMessage] = useState<string | null>(null);
- async function save(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setBusy(true); try { await updateDisplayName(user, String(new FormData(event.currentTarget).get("name"))); await refreshUser(); setMessage("Profile updated."); } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Unable to update profile."); } finally { setBusy(false); } }
- async function photo(event: ChangeEvent<HTMLInputElement>) { const file = event.target.files?.[0]; if (!file) return; setBusy(true); try { validateImage(file); const uploaded = await uploadProfilePicture(user.uid, "user", file); await updateUserPhoto(user, uploaded.photoURL, uploaded.photoStoragePath); await removeProfilePicture(profile?.photoStoragePath); await refreshUser(); setMessage("Profile picture updated."); } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Unable to upload photo."); } finally { setBusy(false); event.target.value = ""; } }
- async function remove() { setBusy(true); try { await updateUserPhoto(user, null, null); await removeProfilePicture(profile?.photoStoragePath); await refreshUser(); setMessage("Profile picture removed."); } catch { setMessage("Unable to remove photo."); } finally { setBusy(false); } }
- return <><PageHeader title="Profile" description="Your personal details and account controls." /><Notice message={message} tone={message?.includes("updated") || message?.includes("removed") ? "success" : "error"} /><div className="settings-grid"><section className="panel profile-panel"><Avatar size="large" name={user.displayName || "User"} photoURL={profile?.photoURL || user.photoURL} /><div className="photo-actions"><input ref={input} hidden type="file" accept="image/jpeg,image/png,image/webp" onChange={photo} /><Button variant="secondary" disabled={busy} onClick={() => input.current?.click()}><Camera size={18} /> Change photo</Button>{(profile?.photoURL || user.photoURL) && <Button variant="ghost" disabled={busy} onClick={remove}><Trash2 size={18} /> Remove</Button>}</div><form className="dialog-form" onSubmit={save}><Field label="Display name" name="name" defaultValue={user.displayName || ""} required /><Field label="Email" value={user.email || ""} disabled readOnly /><Button disabled={busy}>Save profile</Button></form></section><section className="panel"><h2>Account</h2><p className="muted-copy">Signed in as <strong>{user.email}</strong></p><hr /><h2>Sign out</h2><p className="muted-copy">Sign out of AmbagGabay on this device.</p><Button variant="danger" onClick={() => logout()}><LogOut size={18} /> Sign out</Button></section></div></>;
+  const { currentUser, refreshUser, logout } = useAuth(),
+    user = currentUser!;
+  const profileSub = useCallback(
+    (next: (items: UserProfile[]) => void, fail: (error: Error) => void) =>
+      subscribeUserProfile(
+        user.uid,
+        (value) => next(value ? [value] : []),
+        fail,
+      ),
+    [user.uid],
+  );
+  const friendSub = useCallback(
+    (
+      next: Parameters<typeof subscribeFriends>[1],
+      fail: Parameters<typeof subscribeFriends>[2],
+    ) => subscribeFriends(user.uid, next, fail),
+    [user.uid],
+  );
+  const profile = useCollectionData(profileSub).items[0],
+    friends = useCollectionData(friendSub).items,
+    input = useRef<HTMLInputElement>(null),
+    [busy, setBusy] = useState(false),
+    [message, setMessage] = useState<string | null>(null);
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      await updateDisplayName(
+        user,
+        String(new FormData(event.currentTarget).get("name")),
+      );
+      await refreshUser();
+      setMessage("Profile updated.");
+    } catch (cause) {
+      setMessage(
+        cause instanceof Error ? cause.message : "Unable to update profile.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function photo(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setBusy(true);
+    try {
+      validateImage(file);
+      const uploaded = await uploadProfilePicture(user.uid, "user", file);
+      await updateUserPhoto(user, uploaded.photoURL, uploaded.photoStoragePath);
+      await removeProfilePicture(profile?.photoStoragePath);
+      await refreshUser();
+      setMessage("Profile picture updated.");
+    } catch (cause) {
+      setMessage(
+        cause instanceof Error ? cause.message : "Unable to upload photo.",
+      );
+    } finally {
+      setBusy(false);
+      event.target.value = "";
+    }
+  }
+  async function remove() {
+    setBusy(true);
+    try {
+      await updateUserPhoto(user, null, null);
+      await removeProfilePicture(profile?.photoStoragePath);
+      await refreshUser();
+      setMessage("Profile picture removed.");
+    } catch {
+      setMessage("Unable to remove photo.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <>
+      <PageHeader
+        title="Profile"
+        description="Your personal details and account controls."
+      />
+      <Notice
+        message={message}
+        tone={
+          message?.includes("updated") || message?.includes("removed")
+            ? "success"
+            : "error"
+        }
+      />
+      <div className="settings-grid">
+        <section className="panel profile-panel">
+          <Avatar
+            size="large"
+            name={user.displayName || "User"}
+            photoURL={profile?.photoURL || user.photoURL}
+          />
+          <div className="photo-actions">
+            <input
+              ref={input}
+              hidden
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              onChange={photo}
+            />
+            <Button
+              variant="secondary"
+              disabled={busy}
+              onClick={() => input.current?.click()}
+            >
+              <Camera size={18} /> Change photo
+            </Button>
+            {(profile?.photoURL || user.photoURL) && (
+              <Button variant="ghost" disabled={busy} onClick={remove}>
+                <Trash2 size={18} /> Remove
+              </Button>
+            )}
+          </div>
+          <form className="dialog-form" onSubmit={save}>
+            <Field
+              label="Display name"
+              name="name"
+              defaultValue={user.displayName || ""}
+              required
+            />
+            <Field label="Email" value={user.email || ""} disabled readOnly />
+            <Button disabled={busy}>Save profile</Button>
+          </form>
+        </section>
+        <section className="panel">
+          <h2>Friend Management</h2>
+          <Link className="settings-link" href="/profile/archived-friends">
+            <Archive />
+            <span>
+              <strong>Archived Friends</strong>
+              <small>
+                {friends.filter((item) => item.archived).length} archived ·
+                balances and history preserved
+              </small>
+            </span>
+            <ChevronRight />
+          </Link>
+          <hr />
+          <h2>Account</h2>
+          <p className="muted-copy">
+            Signed in as <strong>{user.email}</strong>
+          </p>
+          <hr />
+          <Button variant="danger" onClick={() => logout()}>
+            <LogOut size={18} /> Sign out
+          </Button>
+        </section>
+      </div>
+    </>
+  );
 }
