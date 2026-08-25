@@ -1,3 +1,93 @@
 "use client";
-import Link from "next/link";import { useCallback,useEffect,useState } from "react";import { ArrowLeft,RotateCcw } from "lucide-react";import { Avatar } from "@/components/ui/Avatar";import { Button } from "@/components/ui/Button";import { EmptyState,LoadingState,Notice } from "@/components/ui/Feedback";import { PageHeader } from "@/components/ui/PageHeader";import { useAuth } from "@/hooks/useAuth";import { useCollectionData } from "@/hooks/useCollectionData";import { getFinancialOverview } from "@/services/financials";import { setFriendArchived,subscribeFriends } from "@/services/friends";import type { FolderFinancials } from "@/types";import { calculateBalances,formatMoney } from "@/utils/money";
-export default function ArchivedFriendsPage(){const uid=useAuth().currentUser!.uid;const subscription=useCallback((next:Parameters<typeof subscribeFriends>[1],fail:Parameters<typeof subscribeFriends>[2])=>subscribeFriends(uid,next,fail),[uid]);const friends=useCollectionData(subscription),[folders,setFolders]=useState<FolderFinancials[]>([]),[message,setMessage]=useState<string|null>(null);useEffect(()=>{getFinancialOverview(uid).then(setFolders).catch(()=>setMessage("Unable to load balances."))},[uid]);if(friends.loading)return <LoadingState/>;const archived=friends.items.filter(item=>item.archived),contributions=folders.flatMap(item=>item.contributions),settlements=folders.flatMap(item=>item.settlements);return <><Link href="/profile" className="back-link"><ArrowLeft size={18}/> Profile</Link><PageHeader title="Archived Friends" description="Review balances, open financial history, or restore a friend."/><Notice message={friends.error||message}/>{!archived.length?<EmptyState title="No archived friends" description="Friends you archive will remain available here with their full financial history."/>:<div className="friends-grid">{archived.map(friend=>{const balance=calculateBalances(contributions,settlements).find(item=>item.friendId===friend.id)?.balance||0;return <article className="friend-card panel" key={friend.id}><Link href={`/friends/${friend.id}`} className="friend-card-main"><Avatar size="large" name={friend.name} photoURL={friend.photoURL}/><h2>{friend.name}</h2><small>Archived{friend.archivedAt?.toDate?` · ${friend.archivedAt.toDate().toLocaleDateString("en-PH")}`:""}</small><strong className={balance<0?"negative":"positive"}>{Math.abs(balance)<.005?"Settled":balance<0?`Owes ${formatMoney(-balance)}`:`To receive ${formatMoney(balance)}`}</strong></Link><Button variant="secondary" onClick={()=>setFriendArchived(uid,friend,false)}><RotateCcw size={17}/> Restore</Button></article>})}</div>}</>}
+import Link from "next/link";
+import { useCallback, useEffect, useState } from "react";
+import { ArrowLeft, RotateCcw } from "lucide-react";
+import { FriendAvatar } from "@/components/ui/FriendAvatar";
+import { Button } from "@/components/ui/Button";
+import { EmptyState, LoadingState, Notice } from "@/components/ui/Feedback";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { useAuth } from "@/hooks/useAuth";
+import { useCollectionData } from "@/hooks/useCollectionData";
+import { getFinancialOverview } from "@/services/financials";
+import { setFriendArchived, subscribeFriends } from "@/services/friends";
+import type { FolderFinancials } from "@/types";
+import { calculateBalances, formatMoney } from "@/utils/money";
+export default function ArchivedFriendsPage() {
+  const uid = useAuth().currentUser!.uid;
+  const subscription = useCallback(
+    (
+      next: Parameters<typeof subscribeFriends>[1],
+      fail: Parameters<typeof subscribeFriends>[2],
+    ) => subscribeFriends(uid, next, fail),
+    [uid],
+  );
+  const friends = useCollectionData(subscription),
+    [folders, setFolders] = useState<FolderFinancials[]>([]),
+    [message, setMessage] = useState<string | null>(null);
+  useEffect(() => {
+    getFinancialOverview(uid)
+      .then(setFolders)
+      .catch(() => setMessage("Unable to load balances."));
+  }, [uid]);
+  if (friends.loading) return <LoadingState />;
+  const archived = friends.items.filter((item) => item.archived),
+    contributions = folders.flatMap((item) => item.contributions),
+    settlements = folders.flatMap((item) => item.settlements);
+  return (
+    <>
+      <Link href="/profile" className="back-link">
+        <ArrowLeft size={18} /> Profile
+      </Link>
+      <PageHeader
+        title="Archived Friends"
+        description="Review balances, open financial history, or restore a friend."
+      />
+      <Notice message={friends.error || message} />
+      {!archived.length ? (
+        <EmptyState
+          title="No archived friends"
+          description="Friends you archive will remain available here with their full financial history."
+        />
+      ) : (
+        <div className="friends-grid">
+          {archived.map((friend) => {
+            const balance =
+              calculateBalances(contributions, settlements).find(
+                (item) => item.friendId === friend.id,
+              )?.balance || 0;
+            return (
+              <article className="friend-card panel" key={friend.id}>
+                <Link
+                  href={`/friends/${friend.id}`}
+                  className="friend-card-main"
+                >
+                  <FriendAvatar size="large" friend={friend}/>
+                  <h2>{friend.name}</h2>
+                  <small>
+                    Archived
+                    {friend.archivedAt?.toDate
+                      ? ` · ${friend.archivedAt.toDate().toLocaleDateString("en-PH")}`
+                      : ""}
+                  </small>
+                  <strong className={balance < 0 ? "negative" : "positive"}>
+                    {Math.abs(balance) < 0.005
+                      ? "Settled"
+                      : balance < 0
+                        ? `Owes ${formatMoney(-balance)}`
+                        : `To receive ${formatMoney(balance)}`}
+                  </strong>
+                </Link>
+                <Button
+                  variant="secondary"
+                  onClick={() => setFriendArchived(uid, friend, false)}
+                >
+                  <RotateCcw size={17} /> Restore
+                </Button>
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </>
+  );
+}

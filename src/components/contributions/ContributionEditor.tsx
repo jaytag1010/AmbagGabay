@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Plus, Trash2 } from "lucide-react";
-import { Avatar } from "@/components/ui/Avatar";
+import { FriendAvatar } from "@/components/ui/FriendAvatar";
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { Field, SelectField } from "@/components/ui/Field";
@@ -350,7 +350,7 @@ export function ContributionEditor() {
                   key={friend.id}
                   onClick={() => removeOverall(friend.id)}
                 >
-                  <Avatar name={friend.name} photoURL={friend.photoURL} />
+                  <FriendAvatar friend={friend} />
                   {friendLabel(friend)} ×
                 </button>
               ))}
@@ -461,10 +461,7 @@ export function ContributionEditor() {
                               })
                             }
                           >
-                            <Avatar
-                              name={friend.name}
-                              photoURL={friend.photoURL}
-                            />
+                            <FriendAvatar friend={friend} />
                             {friendLabel(friend)} ×
                           </button>
                         ))}
@@ -554,7 +551,7 @@ export function ContributionEditor() {
                       : addOverall(friend.id)
                   }
                 />
-                <Avatar name={friend.name} photoURL={friend.photoURL} />
+                <FriendAvatar friend={friend} />
                 <span>{friendLabel(friend)}</span>
               </label>
             ))}

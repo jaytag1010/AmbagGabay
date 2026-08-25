@@ -11,6 +11,7 @@ import {
 } from "react";
 import { Archive, Pencil, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
+import { FriendAvatar } from "@/components/ui/FriendAvatar";
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { EmptyState, LoadingState, Notice } from "@/components/ui/Feedback";
@@ -18,6 +19,7 @@ import { Field } from "@/components/ui/Field";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { useAuth } from "@/hooks/useAuth";
 import { useCollectionData } from "@/hooks/useCollectionData";
+import { usePersistentSort } from "@/hooks/usePersistentSort";
 import { getFinancialOverview } from "@/services/financials";
 import { subscribeFriendGroups } from "@/services/friendGroups";
 import {
@@ -40,6 +42,22 @@ import {
   formatMoney,
   settlementDirections,
 } from "@/utils/money";
+import {
+  alpha,
+  friendAmountInvolved,
+  friendContributionCount,
+  friendLastFinancialActivity,
+  friendOutstanding,
+} from "@/utils/sortMetrics";
+type FriendSort =
+  | "az"
+  | "za"
+  | "active-high"
+  | "active-low"
+  | "amount-high"
+  | "amount-low"
+  | "outstanding"
+  | "recent";
 export default function FriendsPage() {
   const uid = useAuth().currentUser!.uid;
   const params = useSearchParams();
@@ -79,12 +97,54 @@ export default function FriendsPage() {
     const match = data.items.find((item) => item.id === id);
     if (match) setEditing(match);
   }, [params, data.items]);
-  const shown = data.items.filter((friend) => showArchived || !friend.archived);
+  const [sort, setSort] = usePersistentSort<FriendSort>("friends", "az");
+  const shown = data.items
+    .filter((friend) => showArchived || !friend.archived)
+    .sort((a, b) => {
+      const tie = alpha(a, b);
+      switch (sort) {
+        case "za":
+          return -tie;
+        case "active-high":
+          return (
+            friendContributionCount(b.id, financials) -
+              friendContributionCount(a.id, financials) || tie
+          );
+        case "active-low":
+          return (
+            friendContributionCount(a.id, financials) -
+              friendContributionCount(b.id, financials) || tie
+          );
+        case "amount-high":
+          return (
+            friendAmountInvolved(b.id, financials) -
+              friendAmountInvolved(a.id, financials) || tie
+          );
+        case "amount-low":
+          return (
+            friendAmountInvolved(a.id, financials) -
+              friendAmountInvolved(b.id, financials) || tie
+          );
+        case "outstanding":
+          return (
+            friendOutstanding(b.id, financials) -
+              friendOutstanding(a.id, financials) || tie
+          );
+        case "recent":
+          return (
+            friendLastFinancialActivity(b.id, financials) -
+              friendLastFinancialActivity(a.id, financials) || tie
+          );
+        default:
+          return tie;
+      }
+    });
   const allContributions = financials.flatMap((item) => item.contributions);
   const allSettlements = financials.flatMap((item) => item.settlements);
   const balanceFor = (id: string) =>
-    calculateBalances(allContributions, allSettlements).find((item) => item.friendId === id)
-      ?.balance || 0;
+    calculateBalances(allContributions, allSettlements).find(
+      (item) => item.friendId === id,
+    )?.balance || 0;
   function close() {
     if (busy) return;
     setEditing(null);
@@ -215,6 +275,23 @@ export default function FriendsPage() {
           Show archived
         </label>
       </div>
+      <label className="sort-control">
+        Sort by{" "}
+        <select
+          aria-label="Sort friends by"
+          value={sort}
+          onChange={(event) => setSort(event.target.value as FriendSort)}
+        >
+          <option value="az">Alphabetical A–Z</option>
+          <option value="za">Alphabetical Z–A</option>
+          <option value="active-high">Most Active</option>
+          <option value="active-low">Least Active</option>
+          <option value="amount-high">Highest Amount Involved</option>
+          <option value="amount-low">Lowest Amount Involved</option>
+          <option value="outstanding">Highest Outstanding Balance</option>
+          <option value="recent">Recently Active</option>
+        </select>
+      </label>
       <Notice
         message={data.error || groups.error || message}
         tone={message ? "success" : "error"}
@@ -236,7 +313,7 @@ export default function FriendsPage() {
                 key={friend.id}
               >
                 <Link href={`/friends/${friend.id}`} className="friend-main">
-                  <Avatar name={friend.name} photoURL={friend.photoURL} />
+                  <FriendAvatar friend={friend} />
                   <div>
                     <h2>{friendLabel(friend)}</h2>
                     <p>
@@ -250,13 +327,7 @@ export default function FriendsPage() {
                   </div>
                 </Link>
                 <div className="row-actions">
-                  <button
-                    className="icon-button"
-                    aria-label={`Edit ${friend.name}`}
-                    onClick={() => setEditing(friend)}
-                  >
-                    <Pencil size={18} />
-                  </button>
+                  {!friend.isMe && <button className="icon-button" aria-label={`Edit ${friend.name}`} onClick={() => setEditing(friend)}><Pencil size={18}/></button>}
                   {!friend.isMe && (
                     <button
                       className="icon-button"

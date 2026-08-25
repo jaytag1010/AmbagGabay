@@ -3,7 +3,7 @@ import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Pencil, Plus, Trash2 } from "lucide-react";
-import { Avatar } from "@/components/ui/Avatar";
+import { FriendAvatar } from "@/components/ui/FriendAvatar";
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { EmptyState, LoadingState, Notice } from "@/components/ui/Feedback";
@@ -276,10 +276,7 @@ export default function FolderDetailPage() {
                         onClick={() => setPersonId(item.friendId)}
                       >
                         <div className="person-label">
-                          <Avatar
-                            name={person?.name || "Unknown"}
-                            photoURL={person?.photoURL}
-                          />
+                          <FriendAvatar friend={person} />
                           <div>
                             <h2>
                               {person ? friendLabel(person) : "Unknown"}

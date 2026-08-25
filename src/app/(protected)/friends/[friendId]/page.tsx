@@ -3,7 +3,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Pencil, RotateCcw } from "lucide-react";
-import { Avatar } from "@/components/ui/Avatar";
+import { FriendAvatar } from "@/components/ui/FriendAvatar";
 import { Button } from "@/components/ui/Button";
 import { EmptyState, LoadingState, Notice } from "@/components/ui/Feedback";
 import { useAuth } from "@/hooks/useAuth";
@@ -150,7 +150,7 @@ export default function FriendDetailsPage() {
         <ArrowLeft size={18} /> Friends
       </Link>
       <header className="friend-detail-header">
-        <Avatar size="large" name={person.name} photoURL={person.photoURL} />
+        <FriendAvatar size="large" friend={person} />
         <div>
           <h1>{friendLabel(person)}</h1>
           <p>{person.archived ? "Archived Friend" : "Active Friend"}</p>
