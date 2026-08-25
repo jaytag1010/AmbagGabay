@@ -1,0 +1,26 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isOwner(uid) { return request.auth != null && request.auth.uid == uid; }
+    match /users/{uid} {
+      allow read, create, update: if isOwner(uid) && request.resource.data.uid == uid;
+      allow delete: if false;
+      match /friends/{friendId} {
+        allow read, create: if isOwner(uid);
+        allow update: if isOwner(uid)
+          && !(friendId == 'me' && (request.resource.data.isMe != true || request.resource.data.archived != false));
+        allow delete: if false;
+      }
+      match /friendGroups/{groupId} { allow read, write: if isOwner(uid); }
+      match /folders/{folderId} {
+        allow read, write: if isOwner(uid);
+        match /contributions/{contributionId} {
+          allow read, write: if isOwner(uid);
+          match /expenses/{expenseId} { allow read, write: if isOwner(uid); }
+        }
+      }
+      match /settlements/{settlementId} { allow read, write: if isOwner(uid); }
+    }
+    match /{document=**} { allow read, write: if false; }
+  }
+}

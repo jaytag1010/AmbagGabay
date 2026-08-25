@@ -1,0 +1,1 @@
+export default function AuthLayout({ children }: { children: React.ReactNode }) { return <main className="auth-shell"><section className="auth-brand"><div className="brand-mark">A</div><h1>AmbagGabay</h1><p>Shared expenses, guided together.</p></section>{children}</main>; }
