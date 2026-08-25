@@ -1,4 +1,4 @@
-import { addDoc, collection, deleteDoc, doc, getDoc, onSnapshot, orderBy, query, serverTimestamp, updateDoc } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, getDocs, onSnapshot, orderBy, query, serverTimestamp, updateDoc, writeBatch } from "firebase/firestore";
 import { requireDb } from "@/lib/firebase";
 import type { Folder, FolderInput } from "@/types";
 import { cleanName } from "@/utils/format";
@@ -13,4 +13,4 @@ export function subscribeFolders(uid: string, callback: (items: Folder[]) => voi
 export async function getFolder(uid: string, id: string) { const result = await getDoc(doc(foldersRef(uid), id)); return result.exists() ? ({ id: result.id, ...result.data() } as Folder) : null; }
 export async function createFolder(uid: string, input: FolderInput) { const data = await validate(uid, input); const now = serverTimestamp(); await addDoc(foldersRef(uid), { ...data, createdAt: now, updatedAt: now }); }
 export async function updateFolder(uid: string, id: string, input: FolderInput) { const data = await validate(uid, input); await updateDoc(doc(foldersRef(uid), id), { ...data, updatedAt: serverTimestamp() }); }
-export async function deleteFolder(uid: string, id: string) { await deleteDoc(doc(foldersRef(uid), id)); }
+export async function deleteFolder(uid: string, id: string) { const db = requireDb(); const folder = doc(foldersRef(uid), id); const contributions = await getDocs(collection(folder, "contributions")); const batch = writeBatch(db); for (const contribution of contributions.docs) { const expenses = await getDocs(collection(contribution.ref, "expenses")); expenses.docs.forEach(expense => batch.delete(expense.ref)); batch.delete(contribution.ref); } batch.delete(folder); await batch.commit(); }

@@ -1,6 +1,6 @@
 # AmbagGabay
 
-Version 0.1 foundation for organizing shared-expense folders, friends, and reusable friend groups. Built with Next.js, TypeScript, Tailwind CSS, Firebase Authentication, and Cloud Firestore.
+AmbagGabay organizes shared-expense folders, friends, reusable groups, contributions, item-level participants, and balances. Built with Next.js, TypeScript, Tailwind CSS, Firebase Authentication, Cloud Firestore, and Firebase Storage.
 
 ## Requirements
 
@@ -9,6 +9,7 @@ Version 0.1 foundation for organizing shared-expense folders, friends, and reusa
 - Cloud Firestore
 - Email/Password authentication enabled
 - Google authentication enabled for Google sign-in
+- Firebase Storage enabled for profile pictures
 
 ## Local setup
 
@@ -29,10 +30,10 @@ Install or run the Firebase CLI, then select your project and deploy the rules:
 ```bash
 firebase login
 firebase use --add
-firebase deploy --only firestore:rules
+firebase deploy --only firestore:rules,storage
 ```
 
-`firebase.json` and production-oriented owner-only `firestore.rules` are included. `.firebaserc.example` is only a template; your selected project is local configuration.
+`firebase.json`, production-oriented owner-only `firestore.rules`, and `storage.rules` are included.
 
 ## Checks
 

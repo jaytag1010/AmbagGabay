@@ -1,0 +1,1 @@
+import { Suspense } from "react"; import { ContributionEditor } from "@/components/contributions/ContributionEditor"; import { LoadingState } from "@/components/ui/Feedback"; export default function NewContributionPage() { return <Suspense fallback={<LoadingState />}><ContributionEditor /></Suspense>; }

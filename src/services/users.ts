@@ -1,7 +1,8 @@
-import { doc, getDoc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
+import { doc, getDoc, onSnapshot, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import { updateProfile, type User } from "firebase/auth";
 import { requireDb } from "@/lib/firebase";
 import { cleanName } from "@/utils/format";
+import type { UserProfile } from "@/types";
 
 const fallbackName = (user: User) => cleanName(user.displayName || user.email?.split("@")[0] || "User");
 export async function ensureUserProfile(user: User) {
@@ -29,3 +30,5 @@ export async function updateDisplayName(user: User, value: string) {
     setDoc(doc(db, "users", user.uid, "friends", "me"), { name, isMe: true, archived: false, updatedAt: now }, { merge: true }),
   ]);
 }
+export function subscribeUserProfile(uid: string, callback: (profile: UserProfile | null) => void, onError: (error: Error) => void) { return onSnapshot(doc(requireDb(), "users", uid), snapshot => callback(snapshot.exists() ? snapshot.data() as UserProfile : null), onError); }
+export async function updateUserPhoto(user: User, photoURL: string | null, photoStoragePath: string | null) { await updateProfile(user, { photoURL }); const now = serverTimestamp(); await Promise.all([updateDoc(doc(requireDb(), "users", user.uid), { photoURL, photoStoragePath, updatedAt: now }), setDoc(doc(requireDb(), "users", user.uid, "friends", "me"), { photoURL, photoStoragePath, isMe: true, archived: false, updatedAt: now }, { merge: true })]); }

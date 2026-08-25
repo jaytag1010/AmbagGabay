@@ -1,0 +1,2 @@
+/* eslint-disable @next/next/no-img-element */
+export function Avatar({ name, photoURL, size = "normal" }: { name: string; photoURL?: string | null; size?: "normal" | "large" }) { return photoURL ? <img className={`avatar avatar-${size}`} src={photoURL} alt={`${name}'s profile`} /> : <span className={`avatar avatar-${size}`} aria-label={`${name}'s initials`}>{name.trim()[0]?.toUpperCase() || "?"}</span>; }
