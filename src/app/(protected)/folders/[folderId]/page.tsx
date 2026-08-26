@@ -29,7 +29,6 @@ import {
   folderTotal,
   formatMoney,
   fromCentavos,
-  moneyDirectionClass,
   settlementDirections,
   splitCentavos,
 } from "@/utils/money";
@@ -558,6 +557,20 @@ export default function FolderDetailPage() {
                 else values.set(entry.contribution.id, { contribution: entry.contribution, items: [{ expense: entry.expense, share }], subtotal: share });
                 return values;
               }, new Map<string, { contribution: ContributionWithExpenses; items: Array<{ expense: ContributionWithExpenses["expenses"][number]; share: number }>; subtotal: number }>()).values()];
+            const expenseStatus = (contribution: ContributionWithExpenses) => {
+              const remaining = contributionObligations([contribution], settlements);
+              const relevantRemaining = remaining.filter(obligation => personId === "me"
+                ? obligation.fromFriendId === "me" || obligation.toFriendId === "me"
+                : (obligation.fromFriendId === "me" && obligation.toFriendId === personId) || (obligation.toFriendId === "me" && obligation.fromFriendId === personId));
+              const original = settlementDirections([contribution]);
+              const relevantOriginal = original.filter(flow => personId === "me"
+                ? flow.fromFriendId === "me" || flow.toFriendId === "me"
+                : (flow.fromFriendId === "me" && flow.toFriendId === personId) || (flow.toFriendId === "me" && flow.fromFriendId === personId));
+              const displayFlows = relevantRemaining.length ? relevantRemaining : relevantOriginal;
+              const incoming = displayFlows.filter(flow => flow.toFriendId === "me").reduce((sum, flow) => sum + flow.amount, 0);
+              const outgoing = displayFlows.filter(flow => flow.fromFriendId === "me").reduce((sum, flow) => sum + flow.amount, 0);
+              return { active: relevantRemaining.length > 0, amount: Math.abs(incoming - outgoing), direction: incoming > outgoing ? "money-incoming" : outgoing > incoming ? "money-outgoing" : "money-neutral" };
+            };
             return (
               <div className="detail-view">
                 <div className="summary-grid compact">
@@ -595,11 +608,11 @@ export default function FolderDetailPage() {
                     </div>
                   </>
                 )}
-                {[{title:"Active Shared Expenses",items:grouped.filter(group=>contributionObligations([group.contribution],settlements).some(obligation=>(obligation.fromFriendId==="me"&&obligation.toFriendId===personId)||(obligation.toFriendId==="me"&&obligation.fromFriendId===personId)))},{title:"Settled Shared Expenses",items:grouped.filter(group=>!contributionObligations([group.contribution],settlements).some(obligation=>(obligation.fromFriendId==="me"&&obligation.toFriendId===personId)||(obligation.toFriendId==="me"&&obligation.fromFriendId===personId)))}].map(section=><section key={section.title}><h3>{section.title} ({section.items.length})</h3>{section.items.length?<div className="expense-groups">
-                  {section.items.map(({ contribution, items, subtotal }) => { const direction=settlementDirections([contribution]).find(flow=>(flow.fromFriendId==="me"&&flow.toFriendId===personId)||(flow.toFriendId==="me"&&flow.fromFriendId===personId)); return (
+                {[{title:"Active Shared Expenses",items:grouped.filter(group=>expenseStatus(group.contribution).active)},{title:"Settled Shared Expenses",items:grouped.filter(group=>!expenseStatus(group.contribution).active)}].map(section=><section key={section.title}><h3>{section.title} ({section.items.length})</h3>{section.items.length?<div className="expense-groups">
+                  {section.items.map(({ contribution, items, subtotal }) => { const status=expenseStatus(contribution); return (
                     <section className="expense-group" key={contribution.id}>
                       <button type="button" className="expense-group-card" onClick={() => { setFriendBreakdown({ friendId: personId, contributionId: contribution.id }); setPersonId(null); }}>
-                      <header><strong>{contribution.title}</strong><span className={direction?moneyDirectionClass(direction.fromFriendId,direction.toFriendId):"money-neutral"}>{formatMoney(direction?.amount||subtotal)}</span></header>
+                      <header><strong>{contribution.title}</strong><span className={status.direction}>{formatMoney(status.amount||subtotal)}</span></header>
                       <small>{formatDate(contribution.date)}</small>
                       {section.title.startsWith("Settled")&&<small className="settled-badge">✓ Settled</small>}
                       <div className="share-list">
