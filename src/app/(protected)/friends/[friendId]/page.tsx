@@ -478,6 +478,7 @@ export default function FriendDetailsPage() {
                 <p>
                   {folders.find((f) => f.folder.id === s.folderId)?.folder
                     .name || "Folder"}{" "}
+                  · {s.contributionId ? folders.flatMap(f => f.contributions).find(c => c.id === s.contributionId)?.title || "Contribution" : "Legacy folder payment · not applied"}{" "}
                   ·{" "}
                   {s.updatedAt?.toDate?.().toLocaleString("en-PH") ||
                     "Recently"}
