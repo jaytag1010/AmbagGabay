@@ -226,7 +226,7 @@ export default function FolderDetailPage() {
                 >
                   <div>
                     <small>{formatDate(item.date)}</small>
-                    <h2>{item.title}</h2>
+                    <h2 className="contribution-title">{item.title}</h2>
                     {item.createdByUserId && (
                       <p>
                         Created by{" "}
@@ -555,7 +555,14 @@ export default function FolderDetailPage() {
               flows = directionSummary(personId),
               involved = expenses.filter(({ expense }) =>
                 expense.participantIds.includes(personId),
-              );
+              ),
+              grouped = [...involved.reduce((values, entry) => {
+                const existing = values.get(entry.contribution.id);
+                const share = fromCentavos(splitCentavos(entry.expense.amount, entry.expense.participantIds).get(personId) || 0);
+                if (existing) { existing.items.push({ expense: entry.expense, share }); existing.subtotal += share; }
+                else values.set(entry.contribution.id, { contribution: entry.contribution, items: [{ expense: entry.expense, share }], subtotal: share });
+                return values;
+              }, new Map<string, { contribution: ContributionWithExpenses; items: Array<{ expense: ContributionWithExpenses["expenses"][number]; share: number }>; subtotal: number }>()).values()];
             return (
               <div className="detail-view">
                 <div className="summary-grid compact">
@@ -594,24 +601,15 @@ export default function FolderDetailPage() {
                   </>
                 )}
                 <h3>Shared expenses</h3>
-                <div className="share-list">
-                  {involved.map(({ contribution, expense }) => (
-                    <div key={expense.id}>
-                      <span>
-                        {expense.title}
-                        <small>{contribution.title}</small>
-                      </span>
-                      <strong>
-                        {formatMoney(
-                          fromCentavos(
-                            splitCentavos(
-                              expense.amount,
-                              expense.participantIds,
-                            ).get(personId) || 0,
-                          ),
-                        )}
-                      </strong>
-                    </div>
+                <div className="expense-groups">
+                  {grouped.map(({ contribution, items, subtotal }) => (
+                    <section className="expense-group" key={contribution.id}>
+                      <header><strong>{contribution.title}</strong><span>{formatMoney(subtotal)}</span></header>
+                      <small>{formatDate(contribution.date)}</small>
+                      <div className="share-list">
+                        {items.map(({ expense, share }) => <div key={expense.id}><span>{expense.title}</span><strong>{formatMoney(share)}</strong></div>)}
+                      </div>
+                    </section>
                   ))}
                 </div>
               </div>

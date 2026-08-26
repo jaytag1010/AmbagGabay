@@ -236,7 +236,7 @@ export default function SharedFolderPage() {
             >
               <div>
                 <small>{formatDate(item.date)}</small>
-                <h2>{item.title}</h2>
+                <h2 className="contribution-title">{item.title}</h2>
                 {item.createdByUserId && (
                   <p>
                     Created by{" "}

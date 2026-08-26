@@ -324,7 +324,10 @@ export default function FriendDetailsPage() {
                 key={`${folder.id}-${contribution.id}`}
               >
                 <div>
-                  <h3>{contribution.title}</h3>
+                  <h3 className="contribution-title">{contribution.title}</h3>
+                  <strong className="history-subtotal">
+                    Share {formatMoney(contribution.expenses.filter(e => e.participantIds.includes(friendId)).reduce((sum, e) => sum + fromCentavos(splitCentavos(e.amount, e.participantIds).get(friendId) || 0), 0))}
+                  </strong>
                   <p>
                     {formatDate(contribution.date)} · {folder.name}
                   </p>
