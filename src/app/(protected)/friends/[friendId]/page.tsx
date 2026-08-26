@@ -32,6 +32,7 @@ import {
   effectiveExpensePayer,
   formatMoney,
   fromCentavos,
+  getPairNetBalance,
   moneyDirectionClass,
   splitCentavos,
 } from "@/utils/money";
@@ -152,7 +153,7 @@ export default function FriendDetailsPage() {
   }
   if (friends.loading) return <LoadingState />;
   if (!person) return <Notice message="Friend not found." />;
-  const balance = summary?.balance || 0;
+  const pairBalance=fromCentavos(getPairNetBalance(contributions,settlements,"me",friendId).netCentavos);
   return (
     <>
       <Link href="/friends" className="back-link">
@@ -195,12 +196,12 @@ export default function FriendDetailsPage() {
         </article>
         <article className="metric">
           <span>Current Balance</span>
-          <strong className={Math.abs(balance)<0.005?"money-neutral":balance < 0 ? "money-incoming" : "money-outgoing"}>
-            {Math.abs(balance) < 0.005
+          <strong className={Math.abs(pairBalance)<0.005?"money-neutral":pairBalance > 0 ? "money-incoming" : "money-outgoing"}>
+            {Math.abs(pairBalance) < 0.005
               ? "Settled"
-              : balance < 0
-                ? `Owes ${formatMoney(-balance)}`
-                : `To receive ${formatMoney(balance)}`}
+              : pairBalance > 0
+                ? `Owes ${formatMoney(pairBalance)}`
+                : `To receive ${formatMoney(-pairBalance)}`}
           </strong>
         </article>
       </section>
@@ -273,10 +274,7 @@ export default function FriendDetailsPage() {
       <h2 className="section-title">Folders</h2>
       <div className="folder-breakdown">
         {folders.map((item) => {
-          const value = calculateBalances(
-            item.contributions,
-            item.settlements,
-          ).find((v) => v.friendId === friendId);
+          const folderPair=fromCentavos(getPairNetBalance(item.contributions,item.settlements,"me",friendId).netCentavos);
           return (
             <Link
               className="panel"
@@ -286,12 +284,12 @@ export default function FriendDetailsPage() {
               <h3>
                 {item.folder.icon} {item.folder.name}
               </h3>
-              <strong className={!value||Math.abs(value.balance)<0.005?"money-neutral":value.balance<0?"money-incoming":"money-outgoing"}>
-                {!value || Math.abs(value.balance) < 0.005
+              <strong className={Math.abs(folderPair)<0.005?"money-neutral":folderPair>0?"money-incoming":"money-outgoing"}>
+                {Math.abs(folderPair) < 0.005
                   ? "Settled"
-                  : value.balance < 0
-                    ? `Owes ${formatMoney(-value.balance)}`
-                    : `To receive ${formatMoney(value.balance)}`}
+                  : folderPair > 0
+                    ? `Owes ${formatMoney(folderPair)}`
+                    : `To receive ${formatMoney(-folderPair)}`}
               </strong>
             </Link>
           );

@@ -29,6 +29,8 @@ import {
   folderTotal,
   formatMoney,
   fromCentavos,
+  getActivePairRelationships,
+  getPairNetBalance,
   settlementDirections,
   splitCentavos,
 } from "@/utils/money";
@@ -116,10 +118,6 @@ export default function FolderDetailPage() {
   const balances = useMemo(
       () => calculateBalances(contributions.items, settlements),
       [contributions.items, settlements],
-    ),
-    directions = useMemo(
-      () => settlementDirections(contributions.items, settlements),
-      [contributions.items, settlements],
     );
   const friend = (id: string) => friends.items.find((item) => item.id === id);
   const label = (id: string) =>
@@ -129,10 +127,9 @@ export default function FolderDetailPage() {
   );
   const total = folderTotal(contributions.items),
     me = balances.find((item) => item.friendId === "me");
-  const directionSummary = (id: string) =>
-    directions.filter(
-      (item) => item.fromFriendId === id || item.toFriendId === id,
-    );
+  const activeRelationships = getActivePairRelationships(contributions.items, settlements);
+  const pairWithMe = (id:string) => getPairNetBalance(contributions.items, settlements, "me", id);
+  const meIncoming = activeRelationships.filter(item=>item.toFriendId==="me"), meOutgoing=activeRelationships.filter(item=>item.fromFriendId==="me");
   async function remove() {
     if (!detail) return;
     if (!confirm(`Delete ${detail.title} and all of its expense items?`))
@@ -288,10 +285,11 @@ export default function FolderDetailPage() {
               </label>
               <div className="list">
                 {balances
-                  .filter((item) => showAll || Math.abs(item.balance) >= 0.005)
+                  .filter((item) => showAll || (item.friendId === "me" ? meIncoming.length > 0 || meOutgoing.length > 0 : pairWithMe(item.friendId).netCentavos !== 0))
                   .map((item) => {
                     const person = friend(item.friendId),
-                      flows = directionSummary(item.friendId);
+                      pair = item.friendId === "me" ? null : pairWithMe(item.friendId),
+                      incomingTotal=meIncoming.reduce((sum,value)=>sum+value.amountCentavos,0), outgoingTotal=meOutgoing.reduce((sum,value)=>sum+value.amountCentavos,0);
                     return (
                       <button
                         className="data-row"
@@ -312,30 +310,7 @@ export default function FolderDetailPage() {
                           </div>
                         </div>
                         <div>
-                          <strong
-                            className={
-                              item.balance >= 0 ? "positive" : "negative"
-                            }
-                          >
-                            {item.balance > 0.004
-                              ? `To receive ${formatMoney(item.balance)}`
-                              : item.balance < -0.004
-                                ? `Owes ${formatMoney(-item.balance)}`
-                                : "Settled"}
-                          </strong>
-                          {flows.length > 0 && (
-                            <small>
-                              {item.balance < 0 ? "To" : "From"}{" "}
-                              {label(
-                                item.balance < 0
-                                  ? flows[0].toFriendId
-                                  : flows[0].fromFriendId,
-                              )}
-                              {flows.length > 1
-                                ? ` + ${flows.length - 1} other${flows.length > 2 ? "s" : ""}`
-                                : ""}
-                            </small>
-                          )}
+                          {item.friendId === "me" ? <>{incomingTotal>0&&<strong className="money-incoming">To receive {formatMoney(fromCentavos(incomingTotal))} from {meIncoming.length===1?label(meIncoming[0].fromFriendId):`${meIncoming.length} people`}</strong>}{outgoingTotal>0&&<strong className="money-outgoing">You owe {formatMoney(fromCentavos(outgoingTotal))} to {meOutgoing.length===1?label(meOutgoing[0].toFriendId):`${meOutgoing.length} people`}</strong>}{!incomingTotal&&!outgoingTotal&&<strong className="money-neutral">Settled</strong>}</> : <><strong className={pair!.netCentavos>0?"money-incoming":pair!.netCentavos<0?"money-outgoing":"money-neutral"}>{pair!.netCentavos>0?`Owes ${formatMoney(fromCentavos(pair!.netCentavos))}`:pair!.netCentavos<0?`To receive ${formatMoney(fromCentavos(-pair!.netCentavos))}`:"Settled"}</strong>{pair!.netCentavos!==0&&<small>{pair!.netCentavos>0?"To":"From"} {label("me")}</small>}</>}
                         </div>
                       </button>
                     );
@@ -546,7 +521,7 @@ export default function FolderDetailPage() {
         {personId &&
           (() => {
             const value = balances.find((item) => item.friendId === personId)!,
-              flows = directionSummary(personId),
+              pair = personId === "me" ? null : pairWithMe(personId),
               involved = expenses.filter(({ contribution, expense }) =>
                 expense.participantIds.includes(personId) || effectiveExpensePayer(contribution, expense) === personId,
               ),
@@ -585,27 +560,16 @@ export default function FolderDetailPage() {
                   </article>
                   <article className="metric">
                     <span>
-                      {value.balance < 0 ? "Total Owed" : "To Receive"}
+                      {!pair ? "Net Position" : pair.netCentavos > 0 ? "Total Owed" : "To Receive"}
                     </span>
-                    <strong>{formatMoney(Math.abs(value.balance))}</strong>
+                    <strong className={!pair?"money-neutral":pair.netCentavos>0?"money-incoming":pair.netCentavos<0?"money-outgoing":"money-neutral"}>{formatMoney(!pair?Math.abs(value.balance):fromCentavos(Math.abs(pair.netCentavos)))}</strong>
                   </article>
                 </div>
-                {flows.length > 0 && (
+                {pair && pair.netCentavos !== 0 && (
                   <>
-                    <h3>{value.balance < 0 ? "Pay to" : "Receive from"}</h3>
+                    <h3>{pair.netCentavos > 0 ? "Receive from" : "Pay to"}</h3>
                     <div className="share-list">
-                      {flows.map((flow, index) => (
-                        <div key={index}>
-                          <span>
-                            {label(
-                              value.balance < 0
-                                ? flow.toFriendId
-                                : flow.fromFriendId,
-                            )}
-                          </span>
-                          <strong>{formatMoney(flow.amount)}</strong>
-                        </div>
-                      ))}
+                      <div><span>{pair.netCentavos > 0 ? label(personId) : label("me")}</span><strong className={pair.netCentavos>0?"money-incoming":"money-outgoing"}>{formatMoney(fromCentavos(Math.abs(pair.netCentavos)))}</strong></div>
                     </div>
                   </>
                 )}

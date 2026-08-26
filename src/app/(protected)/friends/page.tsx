@@ -41,6 +41,8 @@ import {
   calculateBalances,
   effectiveExpensePayer,
   formatMoney,
+  fromCentavos,
+  getActivePairRelationships,
   settlementDirections,
 } from "@/utils/money";
 import {
@@ -143,6 +145,14 @@ export default function FriendsPage() {
     });
   const allContributions = financials.flatMap((item) => item.contributions);
   const allSettlements = financials.flatMap((item) => item.settlements);
+  const activeRelationships=getActivePairRelationships(allContributions,allSettlements), meFriend=data.items.find(item=>item.id==="me"||item.isMe), meName=meFriend?.name||auth.currentUser?.displayName||"Me";
+  const friendName=(id:string)=>data.items.find(item=>item.id===id)?.name||"Unknown";
+  const relationshipLines=(friend:Friend)=>{
+    if(friend.id==="me"||friend.isMe){const incoming=activeRelationships.filter(item=>item.toFriendId==="me"),outgoing=activeRelationships.filter(item=>item.fromFriendId==="me"),incomingTotal=incoming.reduce((sum,item)=>sum+item.amountCentavos,0),outgoingTotal=outgoing.reduce((sum,item)=>sum+item.amountCentavos,0);return[{text:`To receive ${formatMoney(fromCentavos(incomingTotal))} from ${incoming.length===1?friendName(incoming[0].fromFriendId):`${incoming.length} people`}`,className:"money-incoming",show:incomingTotal>0},{text:`You owe ${formatMoney(fromCentavos(outgoingTotal))} to ${outgoing.length===1?friendName(outgoing[0].toFriendId):`${outgoing.length} people`}`,className:"money-outgoing",show:outgoingTotal>0}].filter(item=>item.show)}
+    const related=activeRelationships.filter(item=>item.fromFriendId===friend.id||item.toFriendId===friend.id),current=related.filter(item=>item.fromFriendId==="me"||item.toFriendId==="me"),others=related.filter(item=>item.fromFriendId!=="me"&&item.toFriendId!=="me"),owesOthers=others.filter(item=>item.fromFriendId===friend.id),receivesOthers=others.filter(item=>item.toFriendId===friend.id),lines:{text:string;className:string;show:boolean}[]=[];
+    for(const item of current)lines.push({text:item.fromFriendId===friend.id?`Owes ${formatMoney(fromCentavos(item.amountCentavos))} to ${meName}`:`To receive ${formatMoney(fromCentavos(item.amountCentavos))} from ${meName}`,className:item.toFriendId==="me"?"money-incoming":"money-outgoing",show:true});
+    const add=(items:typeof others,kind:"owes"|"receives")=>{const total=items.reduce((sum,item)=>sum+item.amountCentavos,0);if(!total)return;const otherIds=[...new Set(items.map(item=>kind==="owes"?item.toFriendId:item.fromFriendId))],counterparty=otherIds.length===1?friendName(otherIds[0]):`${otherIds.length} people`;lines.push({text:kind==="owes"?`Owes ${formatMoney(fromCentavos(total))} to ${counterparty}`:`To receive ${formatMoney(fromCentavos(total))} from ${counterparty}`,className:"money-neutral",show:true})};add(owesOthers,"owes");add(receivesOthers,"receives");return lines;
+  };
   const balanceFor = (id: string) =>
     calculateBalances(allContributions, allSettlements).find(
       (item) => item.friendId === id,
@@ -308,7 +318,7 @@ export default function FriendsPage() {
       ) : (
         <div className="list">
           {shown.map((friend) => {
-            const balance = balanceFor(friend.id);
+            const lines=relationshipLines(friend);
             return (
               <article
                 className={`list-row friend-row ${friend.archived ? "muted" : ""}`}
@@ -318,14 +328,7 @@ export default function FriendsPage() {
                   <FriendAvatar friend={friend} />
                   <div>
                     <h2>{friendLabel(friend)}</h2>
-                    <p>
-                      {friend.archived ? "Archived · " : ""}
-                      {balance < -0.004
-                        ? `Owes ${formatMoney(-balance)}`
-                        : balance > 0.004
-                          ? `To receive ${formatMoney(balance)}`
-                          : "Settled"}
-                    </p>
+                    <div className="friend-relationship-lines">{friend.archived&&<p>Archived</p>}{lines.length?lines.map((line,index)=><p className={line.className} key={index}>{line.text}</p>):<p className="money-neutral">Settled</p>}</div>
                   </div>
                 </Link>
                 <div className="row-actions">

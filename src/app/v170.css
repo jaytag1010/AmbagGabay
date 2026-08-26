@@ -1,0 +1,1 @@
+.friend-relationship-lines{display:grid;gap:5px;margin-top:6px}.friend-relationship-lines p{margin:0;line-height:1.35}.data-row>div:last-child{display:grid;gap:4px}.data-row>div:last-child strong{display:block}@media(max-width:560px){.friend-relationship-lines{width:100%}.friend-row .friend-main{align-items:stretch}.friend-row .friend-main>div{width:100%}}
