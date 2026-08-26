@@ -17,6 +17,11 @@ service cloud.firestore {
       match /friends/{friendId} { allow read: if isOwner(uid); allow create: if isOwner(uid) && (friendId != 'me' || (request.resource.data.isMe == true && request.resource.data.archived == false)); allow update: if isOwner(uid) && !(friendId == 'me' && (request.resource.data.isMe != true || request.resource.data.archived != false)); allow delete: if false; }
       match /friendLinks/{linkedUid} { allow read, write: if isOwner(uid); }
       match /friendGroups/{groupId} { allow read, write: if isOwner(uid); }
+      match /sharedFolderMemberships/{folderId} {
+        allow read: if isOwner(uid);
+        allow create, update: if isOwner(uid) && request.resource.data.userId == uid && request.resource.data.folderId == folderId && existsAfter(/databases/$(database)/documents/sharedFolders/$(folderId)/members/$(uid));
+        allow delete: if isOwner(uid) || sharedOwner(folderId);
+      }
       match /folders/{folderId} {
         allow read, write: if isOwner(uid);
         match /contributions/{contributionId} {
@@ -36,7 +41,7 @@ service cloud.firestore {
 
     match /sharedFolders/{folderId} {
       allow create: if signedIn() && request.resource.data.ownerId == request.auth.uid;
-      allow read: if sharedMember(folderId);
+      allow read: if signedIn() && (resource.data.ownerId == request.auth.uid || sharedMember(folderId));
       allow update: if sharedOwner(folderId) && request.resource.data.ownerId == resource.data.ownerId;
       allow delete: if sharedOwner(folderId);
       match /members/{memberId} {

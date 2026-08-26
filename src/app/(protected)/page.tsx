@@ -12,6 +12,7 @@ import { useCollectionData } from "@/hooks/useCollectionData";
 import { usePersistentSort } from "@/hooks/usePersistentSort";
 import { getFinancialOverview } from "@/services/financials";
 import {
+  backfillSharedFolderMemberships,
   respondInvitation,
   subscribeInvitations,
   subscribeSharedFolders,
@@ -78,6 +79,9 @@ export default function DashboardPage() {
     [deleting, setDeleting] = useState<Folder | null>(null),
     [busy, setBusy] = useState(false),
     [message, setMessage] = useState<string | null>(null);
+  useEffect(() => {
+    backfillSharedFolderMemberships(uid).catch(() => setMessage("Unable to refresh shared-folder access."));
+  }, [uid]);
   useEffect(() => {
     getFinancialOverview(uid)
       .then(setFinancials)

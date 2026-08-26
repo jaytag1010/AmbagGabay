@@ -1,6 +1,6 @@
 import {
   collection,
-  collectionGroup,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -62,6 +62,7 @@ export async function promotePrivateFolder(
     displayNameSnapshot: ownerName,
     joinedAt: now,
   });
+  batch.set(doc(db, "users", uid, "sharedFolderMemberships", id), { userId: uid, folderId: id, role: "owner", updatedAt: now });
   friends.forEach((friend) =>
     batch.set(doc(target, "people", friend.id), {
       friendId: friend.id,
@@ -188,6 +189,7 @@ export async function respondInvitation(
         displayNameSnapshot: displayName,
         joinedAt: serverTimestamp(),
       });
+      tx.set(doc(db, "users", uid, "sharedFolderMemberships", invitation.folderId), { userId: uid, folderId: invitation.folderId, role: invitation.role, updatedAt: serverTimestamp() });
     }
     tx.update(ref, {
       status: accept ? "accepted" : "declined",
@@ -400,18 +402,21 @@ export function subscribeSharedFolders(
   onError: (error: Error) => void,
 ) {
   return onSnapshot(
-    query(collectionGroup(requireDb(), "members"), where("userId", "==", uid)),
+    collection(requireDb(), "users", uid, "sharedFolderMemberships"),
     async (snapshot) => {
       try {
         const values = await Promise.all(
           snapshot.docs.map(async (access) => {
-            const folder = await getSharedFolder(access.ref.parent.parent!.id);
+            const folderId = access.data().folderId || access.id;
+            const member = await getDoc(doc(requireDb(), "sharedFolders", folderId, "members", uid));
+            if (!member.exists()) { await deleteDoc(access.ref); return null; }
+            const folder = await getSharedFolder(folderId);
             return folder
               ? {
                   folder,
                   membership: {
-                    id: access.id,
-                    ...access.data(),
+                    id: member.id,
+                    ...member.data(),
                   } as FolderMembership,
                 }
               : null;
@@ -433,6 +438,20 @@ export function subscribeSharedFolders(
     },
     onError,
   );
+}
+export async function backfillSharedFolderMemberships(uid: string) {
+  const db = requireDb();
+  const [owned, invitations] = await Promise.all([getDocs(query(collection(db, "sharedFolders"), where("ownerId", "==", uid))), getDocs(query(collection(db, "folderInvitations"), where("recipientUid", "==", uid)))]);
+  const candidates = new Map<string, "owner" | "editor" | "viewer">();
+  owned.forEach(item => candidates.set(item.id, "owner"));
+  invitations.docs.filter(item => item.data().status === "accepted").forEach(item => candidates.set(item.data().folderId, item.data().role));
+  if (!candidates.size) return;
+  const batch = writeBatch(db);
+  for (const [folderId, role] of candidates) {
+    const member = await getDoc(doc(db, "sharedFolders", folderId, "members", uid));
+    if (member.exists()) batch.set(doc(db, "users", uid, "sharedFolderMemberships", folderId), { userId: uid, folderId, role, updatedAt: serverTimestamp() }, { merge: true });
+  }
+  await batch.commit();
 }
 export async function cancelInvitation(
   uid: string,
@@ -509,10 +528,10 @@ export async function removeMember(
   member: FolderMembership,
 ) {
   if (member.role === "owner") throw new Error("The Owner cannot be removed.");
-  const { deleteDoc } = await import("firebase/firestore");
-  await deleteDoc(
-    doc(requireDb(), "sharedFolders", folder.id, "members", member.userId),
-  );
+  const db = requireDb(), batch = writeBatch(db);
+  batch.delete(doc(db, "sharedFolders", folder.id, "members", member.userId));
+  batch.delete(doc(db, "users", member.userId, "sharedFolderMemberships", folder.id));
+  await batch.commit();
   await logActivity(uid, {
     action: "Member removed",
     description: `${member.displayNameSnapshot} removed from ${folder.name}`,
