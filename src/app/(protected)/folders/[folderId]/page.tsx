@@ -547,14 +547,15 @@ export default function FolderDetailPage() {
           (() => {
             const value = balances.find((item) => item.friendId === personId)!,
               flows = directionSummary(personId),
-              involved = expenses.filter(({ expense }) =>
-                expense.participantIds.includes(personId),
+              involved = expenses.filter(({ contribution, expense }) =>
+                expense.participantIds.includes(personId) || effectiveExpensePayer(contribution, expense) === personId,
               ),
               grouped = [...involved.reduce((values, entry) => {
                 const existing = values.get(entry.contribution.id);
                 const share = fromCentavos(splitCentavos(entry.expense.amount, entry.expense.participantIds).get(personId) || 0);
-                if (existing) { existing.items.push({ expense: entry.expense, share }); existing.subtotal += share; }
-                else values.set(entry.contribution.id, { contribution: entry.contribution, items: [{ expense: entry.expense, share }], subtotal: share });
+                const relevantAmount = share || (effectiveExpensePayer(entry.contribution, entry.expense) === personId ? entry.expense.amount : 0);
+                if (existing) { existing.items.push({ expense: entry.expense, share: relevantAmount }); existing.subtotal += relevantAmount; }
+                else values.set(entry.contribution.id, { contribution: entry.contribution, items: [{ expense: entry.expense, share: relevantAmount }], subtotal: relevantAmount });
                 return values;
               }, new Map<string, { contribution: ContributionWithExpenses; items: Array<{ expense: ContributionWithExpenses["expenses"][number]; share: number }>; subtotal: number }>()).values()];
             const expenseStatus = (contribution: ContributionWithExpenses) => {
