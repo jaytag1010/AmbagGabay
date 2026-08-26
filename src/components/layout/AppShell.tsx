@@ -3,7 +3,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect } from "react";
-import { Activity, Home, Settings, UserRound, UsersRound } from "lucide-react";
+import { Activity, Bell, Home, Settings, UserRound, UsersRound } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { LoadingState, Notice } from "@/components/ui/Feedback";
 import { useAuth } from "@/hooks/useAuth";
@@ -16,6 +16,7 @@ const links = [
   { href: "/friends", label: "Friends", icon: UserRound },
   { href: "/groups", label: "Groups", icon: UsersRound },
   { href: "/activity", label: "Activity", icon: Activity },
+  { href: "/notifications", label: "Notifications", icon: Bell },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 export function AppShell({ children }: { children: React.ReactNode }) {

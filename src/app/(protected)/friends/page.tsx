@@ -17,6 +17,7 @@ import { Dialog } from "@/components/ui/Dialog";
 import { EmptyState, LoadingState, Notice } from "@/components/ui/Feedback";
 import { Field } from "@/components/ui/Field";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { SettlePaymentsDialog } from "@/components/settlements/SettlePaymentsDialog";
 import { useAuth } from "@/hooks/useAuth";
 import { useCollectionData } from "@/hooks/useCollectionData";
 import { usePersistentSort } from "@/hooks/usePersistentSort";
@@ -59,7 +60,7 @@ type FriendSort =
   | "outstanding"
   | "recent";
 export default function FriendsPage() {
-  const uid = useAuth().currentUser!.uid;
+  const auth = useAuth(), uid = auth.currentUser!.uid;
   const params = useSearchParams();
   const friendSub = useCallback(
     (
@@ -79,6 +80,7 @@ export default function FriendsPage() {
     groups = useCollectionData(groupSub);
   const [financials, setFinancials] = useState<FolderFinancials[]>([]),
     [editing, setEditing] = useState<Friend | "new" | null>(null),
+    [settling, setSettling] = useState(false),
     [archiveTarget, setArchiveTarget] = useState<Friend | null>(null),
     [showArchived, setShowArchived] = useState(false),
     [busy, setBusy] = useState(false),
@@ -260,9 +262,9 @@ export default function FriendsPage() {
         title="Friends"
         description="The people you split expenses with."
         action={
-          <Button onClick={() => setEditing("new")}>
+          <div className="header-actions"><Button variant="secondary" onClick={() => setSettling(true)}>Settle Payments</Button><Button onClick={() => setEditing("new")}>
             <Plus size={18} /> Add friend
-          </Button>
+          </Button></div>
         }
       />
       <div className="toolbar">
@@ -443,6 +445,7 @@ export default function FriendsPage() {
           </div>
         </form>
       </Dialog>
+      <SettlePaymentsDialog open={settling} onClose={()=>setSettling(false)} uid={uid} userName={auth.currentUser?.displayName||"User"} friends={data.items} financials={financials} onComplete={async()=>setFinancials(await getFinancialOverview(uid))}/>
       <Dialog
         open={!!archiveTarget}
         title={`${archiveTarget?.archived ? "Restore" : "Archive"} ${archiveTarget?.name}?`}

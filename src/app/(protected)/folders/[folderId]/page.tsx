@@ -4,6 +4,7 @@ import { useParams, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Pencil, Plus, Share2, Trash2 } from "lucide-react";
 import { FriendAvatar } from "@/components/ui/FriendAvatar";
+import { SettlePaymentsDialog } from "@/components/settlements/SettlePaymentsDialog";
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { EmptyState, LoadingState, Notice } from "@/components/ui/Feedback";
@@ -22,6 +23,7 @@ import type { ContributionWithExpenses, Folder } from "@/types";
 import { formatDate, friendLabel } from "@/utils/format";
 import {
   calculateBalances,
+  contributionObligations,
   contributionTotal,
   effectiveExpensePayer,
   folderTotal,
@@ -53,6 +55,7 @@ export default function FolderDetailPage() {
     [shareGmail, setShareGmail] = useState(""),
     [shareRole, setShareRole] = useState<"editor" | "viewer">("editor"),
     [sharingBusy, setSharingBusy] = useState(false),
+    [settling, setSettling] = useState(false),
     [sharedFolderId, setSharedFolderId] = useState<string | null>(null);
   const contributionSub = useCallback(
     (
@@ -177,6 +180,9 @@ export default function FolderDetailPage() {
           <h1>{folder.name}</h1>
         </div>
         <div className="header-actions folder-action">
+          <Button variant="secondary" onClick={() => setSettling(true)}>
+            Settle Payments
+          </Button>
           <Button variant="secondary" onClick={() => setSharing(true)}>
             <Share2 size={18} /> Share
           </Button>
@@ -588,9 +594,8 @@ export default function FolderDetailPage() {
                     </div>
                   </>
                 )}
-                <h3>Shared expenses</h3>
-                <div className="expense-groups">
-                  {grouped.map(({ contribution, items, subtotal }) => (
+                {[{title:"Active Shared Expenses",items:grouped.filter(group=>contributionObligations([group.contribution],settlements).some(obligation=>(obligation.fromFriendId==="me"&&obligation.toFriendId===personId)||(obligation.toFriendId==="me"&&obligation.fromFriendId===personId)))},{title:"Paid Shared Expenses",items:grouped.filter(group=>!contributionObligations([group.contribution],settlements).some(obligation=>(obligation.fromFriendId==="me"&&obligation.toFriendId===personId)||(obligation.toFriendId==="me"&&obligation.fromFriendId===personId)))}].map(section=><section key={section.title}><h3>{section.title}</h3>{section.items.length?<div className="expense-groups">
+                  {section.items.map(({ contribution, items, subtotal }) => (
                     <section className="expense-group" key={contribution.id}>
                       <button type="button" className="expense-group-card" onClick={() => { setFriendBreakdown({ friendId: personId, contributionId: contribution.id }); setPersonId(null); }}>
                       <header><strong>{contribution.title}</strong><span>{formatMoney(subtotal)}</span></header>
@@ -602,7 +607,7 @@ export default function FolderDetailPage() {
                       </button>
                     </section>
                   ))}
-                </div>
+                </div>:<p className="muted-copy">No {section.title.toLowerCase()}.</p>}</section>)}
               </div>
             );
           })()}
@@ -625,6 +630,7 @@ export default function FolderDetailPage() {
           </div>;
         })()}
       </Dialog>
+      <SettlePaymentsDialog open={settling} onClose={()=>setSettling(false)} uid={uid} userName={auth.currentUser?.displayName||"User"} friends={friends.items} financials={[{folder,contributions:contributions.items,settlements}]} folderId={folderId}/>
     </>
   );
 }

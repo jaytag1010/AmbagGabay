@@ -153,10 +153,17 @@ export interface Settlement {
   amount: number;
   date: Timestamp;
   note?: string;
-  source?: "individual" | "all";
+  source?: "individual" | "all" | "paid-approved" | "received" | "nonlinked-executory";
+  initiatedByUserId?: string | null;
+  approvedByUserId?: string | null;
+  executedByUserId?: string | null;
+  requestId?: string | null;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
+export interface SettlementAllocation { folderId:string; contributionId:string; fromFriendId:string; toFriendId:string; amount:number; contributionTitle:string }
+export interface SettlementRequest { id:string; requesterUid:string; approverUid:string; requesterName:string; approverName:string; amount:number; allocations:SettlementAllocation[]; status:"pending"|"approved"|"disapproved"|"cancelled"|"invalidated"; requestedAction:"paid"; createdAt:Timestamp; respondedAt?:Timestamp|null; disapprovalReason?:string|null }
+export interface AppNotification { id:string; type:"payment-pending"|"payment-approval-request"|"payment-approved"|"payment-disapproved"|"payment-received-recorded"; title:string; message:string; actorUid:string; recipientUid:string; settlementRequestId?:string|null; read:boolean; createdAt:Timestamp }
 export interface ActivityEntry {
   id: string;
   action: string;

@@ -3,7 +3,7 @@ import { requireDb } from "@/lib/firebase";
 import type { Settlement } from "@/types";
 import { toCentavos } from "@/utils/money";
 
-export interface RecordSettlementInput { folderId: string; contributionId?: string | null; fromFriendId: string; toFriendId: string; amount: number; expectedPreviouslySettled: number; source: "individual" | "all"; description: string }
+export interface RecordSettlementInput { folderId: string; contributionId?: string | null; fromFriendId: string; toFriendId: string; amount: number; expectedPreviouslySettled: number; source: "individual" | "all" | "paid-approved" | "received" | "nonlinked-executory"; description: string; initiatedByUserId?:string|null; approvedByUserId?:string|null; executedByUserId?:string|null; requestId?:string|null }
 const settlementId = (value: Pick<RecordSettlementInput, "folderId" | "contributionId" | "fromFriendId" | "toFriendId">) => `${value.folderId}_${value.contributionId || "folder"}_${value.fromFriendId}_${value.toFriendId}`;
 
 export async function recordSettlement(uid: string, input: RecordSettlementInput) {
@@ -15,7 +15,7 @@ export async function recordSettlement(uid: string, input: RecordSettlementInput
     const previous = current.exists() ? Number(current.data().amount || 0) : 0;
     if (toCentavos(previous) !== toCentavos(input.expectedPreviouslySettled)) throw new Error("This balance changed. Refresh and try again.");
     const now = serverTimestamp();
-    transaction.set(ref, { folderId: input.folderId, contributionId: input.contributionId || null, fromFriendId: input.fromFriendId, toFriendId: input.toFriendId, amount: (toCentavos(previous) + toCentavos(input.amount)) / 100, source: input.source, date: now, createdAt: current.exists() ? current.data().createdAt : now, updatedAt: now }, { merge: true });
+    transaction.set(ref, { folderId: input.folderId, contributionId: input.contributionId || null, fromFriendId: input.fromFriendId, toFriendId: input.toFriendId, amount: (toCentavos(previous) + toCentavos(input.amount)) / 100, source: input.source, initiatedByUserId:input.initiatedByUserId||uid, approvedByUserId:input.approvedByUserId||null, executedByUserId:input.executedByUserId||uid, requestId:input.requestId||null, status:"completed", date: now, createdAt: current.exists() ? current.data().createdAt : now, updatedAt: now }, { merge: true });
     transaction.set(doc(collection(db, "users", uid, "activities")), { action: "settled", description: input.description, entityType: "settlement", entityId: ref.id, folderId: input.folderId, createdAt: now });
   });
 }
