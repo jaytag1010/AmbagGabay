@@ -13,6 +13,7 @@ import { useCollectionData } from "@/hooks/useCollectionData";
 import { getFinancialOverview } from "@/services/financials";
 import { setFriendArchived, subscribeFriends } from "@/services/friends";
 import { recordSettlement } from "@/services/settlements";
+import { notifyReceived, requestPayment } from "@/services/notifications";
 import {
   findAccount,
   linkFriend,
@@ -31,14 +32,15 @@ import {
   effectiveExpensePayer,
   formatMoney,
   fromCentavos,
+  moneyDirectionClass,
   splitCentavos,
 } from "@/utils/money";
 
 type ObligationRow = { folder: FolderFinancials; obligation: ContributionObligation };
 
 export default function FriendDetailsPage() {
-  const { friendId } = useParams<{ friendId: string }>(),
-    uid = useAuth().currentUser!.uid;
+  const { friendId } = useParams<{ friendId: string }>(), auth=useAuth(),
+    uid = auth.currentUser!.uid;
   const friendSub = useCallback(
     (
       next: Parameters<typeof subscribeFriends>[1],
@@ -94,9 +96,9 @@ export default function FriendDetailsPage() {
       ),
     [folders, friendId],
   );
-  const rows: ObligationRow[] = folders.flatMap(item => contributionObligations(item.contributions, item.settlements).filter(flow => flow.fromFriendId === friendId || flow.toFriendId === friendId).map(obligation => ({ folder: item, obligation })));
-  const owes = rows.filter(row => row.obligation.fromFriendId === friendId),
-    receives = rows.filter(row => row.obligation.toFriendId === friendId);
+  const rows: ObligationRow[] = folders.flatMap(item => contributionObligations(item.contributions, item.settlements).filter(flow => (flow.fromFriendId === friendId && flow.toFriendId === "me") || (flow.toFriendId === friendId && flow.fromFriendId === "me")).map(obligation => ({ folder: item, obligation })));
+  const incoming = rows.filter(row => row.obligation.toFriendId === "me"),
+    outgoing = rows.filter(row => row.obligation.fromFriendId === "me");
   const name = (id: string) =>
     friends.items.find((item) => item.id === id)?.name || "Unknown";
   const previous = (folder: FolderFinancials, flow: ContributionObligation) =>
@@ -132,7 +134,10 @@ export default function FriendDetailsPage() {
     setBusy(true);
     setError(null);
     try {
-      for (const row of values) await settle(row, "all");
+      const direction=values[0]?.obligation.fromFriendId==="me"?"paid":"received";
+      if(values.some(row=>(row.obligation.fromFriendId==="me")!==(direction==="paid"))) throw new Error("Paid and received obligations must be settled separately.");
+      if(direction==="paid"&&person?.linkedUserId){await requestPayment({requesterUid:uid,approverUid:person.linkedUserId,requesterName:auth.currentUser?.displayName||"User",approverName:person.name,allocations:values.map(row=>({folderId:row.folder.folder.id,contributionId:row.obligation.contributionId,fromFriendId:row.obligation.fromFriendId,toFriendId:row.obligation.toFriendId,amount:row.obligation.amount,contributionTitle:row.obligation.contributionTitle,expectedPreviouslySettled:previous(row.folder,row.obligation)}))});}
+      else {for (const row of values) await settle(row, "all"); if(direction==="received"&&person?.linkedUserId)await notifyReceived(uid,person.linkedUserId,auth.currentUser?.displayName||"User",values.reduce((sum,row)=>sum+row.obligation.amount,0));}
       await refresh();
     } catch (cause) {
       setError(
@@ -143,18 +148,7 @@ export default function FriendDetailsPage() {
     }
   }
   async function settleOne(row: ObligationRow) {
-    if (!confirm(`Mark ${formatMoney(row.obligation.amount)} for ${row.obligation.contributionTitle} as settled?`)) return;
-    setBusy(true);
-    try {
-      await settle(row, "individual");
-      await refresh();
-    } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Unable to record payment.",
-      );
-    } finally {
-      setBusy(false);
-    }
+    await settleRows([row], `Mark ${row.obligation.fromFriendId === "me" ? "Paid" : "Received"}`);
   }
   if (friends.loading) return <LoadingState />;
   if (!person) return <Notice message="Friend not found." />;
@@ -201,7 +195,7 @@ export default function FriendDetailsPage() {
         </article>
         <article className="metric">
           <span>Current Balance</span>
-          <strong className={balance < 0 ? "negative" : "positive"}>
+          <strong className={Math.abs(balance)<0.005?"money-neutral":balance < 0 ? "money-incoming" : "money-outgoing"}>
             {Math.abs(balance) < 0.005
               ? "Settled"
               : balance < 0
@@ -251,21 +245,8 @@ export default function FriendDetailsPage() {
         </section>
       )}
       <DebtSection
-        title={person.isMe ? "You Owe" : `${person.name} Owes`}
-        rows={owes}
-        action="Paid"
-        all="Mark All Paid"
-        disabled={busy}
-        name={name}
-        subjectId={friendId}
-        onOne={settleOne}
-        onMany={(values) => settleRows(values, "Mark these contributions settled")}
-        onAll={() => settleRows(owes, "Mark all paid")}
-        onInspect={setBreakdown}
-      />
-      <DebtSection
-        title="To Receive"
-        rows={receives}
+        title={`${person.name} Owes You`}
+        rows={incoming}
         action="Received"
         all="Mark All Received"
         disabled={busy}
@@ -273,7 +254,20 @@ export default function FriendDetailsPage() {
         subjectId={friendId}
         onOne={settleOne}
         onMany={(values) => settleRows(values, "Mark these contributions settled")}
-        onAll={() => settleRows(receives, "Mark all received")}
+        onAll={() => settleRows(incoming, "Mark all received")}
+        onInspect={setBreakdown}
+      />
+      <DebtSection
+        title={`You Owe ${person.name}`}
+        rows={outgoing}
+        action="Paid"
+        all="Mark All Paid"
+        disabled={busy}
+        name={name}
+        subjectId={friendId}
+        onOne={settleOne}
+        onMany={(values) => settleRows(values, "Mark these contributions settled")}
+        onAll={() => settleRows(outgoing, "Mark all paid")}
         onInspect={setBreakdown}
       />
       <h2 className="section-title">Folders</h2>
@@ -292,7 +286,7 @@ export default function FriendDetailsPage() {
               <h3>
                 {item.folder.icon} {item.folder.name}
               </h3>
-              <strong>
+              <strong className={!value||Math.abs(value.balance)<0.005?"money-neutral":value.balance<0?"money-incoming":"money-outgoing"}>
                 {!value || Math.abs(value.balance) < 0.005
                   ? "Settled"
                   : value.balance < 0
@@ -538,7 +532,7 @@ function DebtSection({
                 <small>{view === "contribution" ? `${formatDate(row.obligation.contributionDate)} · ${row.folder.folder.name}` : `${row.folder.folder.name} · From ${values.length} contribution${values.length === 1 ? "" : "s"}`}</small>
                 <small>{name(row.obligation.fromFriendId)} → {name(row.obligation.toFriendId)}</small>
               </span>
-              <strong>{formatMoney(amount)}</strong>
+              <strong className={moneyDirectionClass(row.obligation.fromFriendId,row.obligation.toFriendId)}>{formatMoney(amount)}</strong>
               <Button disabled={disabled} onClick={(event) => { event.stopPropagation(); if (view === "contribution") onOne(row); else onMany(values); }}>
                 {action}
               </Button>

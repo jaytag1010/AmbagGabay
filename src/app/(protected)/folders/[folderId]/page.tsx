@@ -29,6 +29,7 @@ import {
   folderTotal,
   formatMoney,
   fromCentavos,
+  moneyDirectionClass,
   settlementDirections,
   splitCentavos,
 } from "@/utils/money";
@@ -594,19 +595,20 @@ export default function FolderDetailPage() {
                     </div>
                   </>
                 )}
-                {[{title:"Active Shared Expenses",items:grouped.filter(group=>contributionObligations([group.contribution],settlements).some(obligation=>(obligation.fromFriendId==="me"&&obligation.toFriendId===personId)||(obligation.toFriendId==="me"&&obligation.fromFriendId===personId)))},{title:"Paid Shared Expenses",items:grouped.filter(group=>!contributionObligations([group.contribution],settlements).some(obligation=>(obligation.fromFriendId==="me"&&obligation.toFriendId===personId)||(obligation.toFriendId==="me"&&obligation.fromFriendId===personId)))}].map(section=><section key={section.title}><h3>{section.title}</h3>{section.items.length?<div className="expense-groups">
-                  {section.items.map(({ contribution, items, subtotal }) => (
+                {[{title:"Active Shared Expenses",items:grouped.filter(group=>contributionObligations([group.contribution],settlements).some(obligation=>(obligation.fromFriendId==="me"&&obligation.toFriendId===personId)||(obligation.toFriendId==="me"&&obligation.fromFriendId===personId)))},{title:"Settled Shared Expenses",items:grouped.filter(group=>!contributionObligations([group.contribution],settlements).some(obligation=>(obligation.fromFriendId==="me"&&obligation.toFriendId===personId)||(obligation.toFriendId==="me"&&obligation.fromFriendId===personId)))}].map(section=><section key={section.title}><h3>{section.title} ({section.items.length})</h3>{section.items.length?<div className="expense-groups">
+                  {section.items.map(({ contribution, items, subtotal }) => { const direction=settlementDirections([contribution]).find(flow=>(flow.fromFriendId==="me"&&flow.toFriendId===personId)||(flow.toFriendId==="me"&&flow.fromFriendId===personId)); return (
                     <section className="expense-group" key={contribution.id}>
                       <button type="button" className="expense-group-card" onClick={() => { setFriendBreakdown({ friendId: personId, contributionId: contribution.id }); setPersonId(null); }}>
-                      <header><strong>{contribution.title}</strong><span>{formatMoney(subtotal)}</span></header>
+                      <header><strong>{contribution.title}</strong><span className={direction?moneyDirectionClass(direction.fromFriendId,direction.toFriendId):"money-neutral"}>{formatMoney(direction?.amount||subtotal)}</span></header>
                       <small>{formatDate(contribution.date)}</small>
+                      {section.title.startsWith("Settled")&&<small className="settled-badge">✓ Settled</small>}
                       <div className="share-list">
                         {[...items].sort((a, b) => b.share - a.share).slice(0, 5).map(({ expense, share }) => <div key={expense.id}><span>{expense.title}</span><strong>{formatMoney(share)}</strong></div>)}
                       </div>
                       {items.length > 5 && <span className="more-items">+ {items.length - 5} more item{items.length - 5 === 1 ? "" : "s"}</span>}
                       </button>
                     </section>
-                  ))}
+                  )})}
                 </div>:<p className="muted-copy">No {section.title.toLowerCase()}.</p>}</section>)}
               </div>
             );

@@ -2,6 +2,9 @@ import type { ContributionObligation, ContributionWithExpenses, Settlement, Sett
 export const toCentavos = (amount: number) => Math.round(amount * 100);
 export const fromCentavos = (amount: number) => amount / 100;
 export const formatMoney = (amount: number) => new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP", minimumFractionDigits: 2 }).format(amount);
+export type FinancialDirection = "incoming" | "outgoing" | "neutral";
+export function getFinancialDirection(fromId: string, toId: string, currentId = "me"): FinancialDirection { return toId === currentId ? "incoming" : fromId === currentId ? "outgoing" : "neutral"; }
+export const moneyDirectionClass = (fromId: string, toId: string, currentId = "me") => `money-${getFinancialDirection(fromId, toId, currentId)}`;
 export function splitCentavos(amount: number, participantIds: string[]) { const ids = [...new Set(participantIds)].sort(); if (!ids.length) return new Map<string, number>(); const cents = toCentavos(amount); const base = Math.floor(cents / ids.length); const remainder = cents - base * ids.length; return new Map(ids.map((id, index) => [id, base + (index < remainder ? 1 : 0)])); }
 export const contributionTotal = (value: ContributionWithExpenses) => fromCentavos(value.expenses.reduce((sum, item) => sum + toCentavos(item.amount), 0));
 export const effectiveExpensePayer = (contribution: ContributionWithExpenses, expense: ContributionWithExpenses["expenses"][number]) => expense.payerFriendId || contribution.payerFriendId;
