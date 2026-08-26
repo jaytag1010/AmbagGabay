@@ -9,6 +9,7 @@ import {
 import { updateProfile, type User } from "firebase/auth";
 import { requireDb } from "@/lib/firebase";
 import { cleanName } from "@/utils/format";
+import { emailLookupId } from "@/utils/identity";
 import type { AccentTheme, AppearanceMode, UserProfile } from "@/types";
 
 const fallbackName = (user: User) =>
@@ -63,6 +64,34 @@ export async function ensureUserProfile(user: User) {
         { merge: true },
       ),
     );
+  writes.push(
+    setDoc(
+      doc(db, "publicProfiles", user.uid),
+      {
+        uid: user.uid,
+        displayName: name,
+        photoURL: user.photoURL || null,
+        updatedAt: now,
+      },
+      { merge: true },
+    ),
+  );
+  if (user.email) {
+    const normalizedEmail = user.email.trim().toLowerCase();
+    writes.push(
+      setDoc(
+        doc(db, "userDirectory", await emailLookupId(normalizedEmail)),
+        {
+          uid: user.uid,
+          normalizedEmail,
+          displayName: name,
+          photoURL: user.photoURL || null,
+          updatedAt: now,
+        },
+        { merge: true },
+      ),
+    );
+  }
   await Promise.all(writes);
 }
 export async function updateDisplayName(user: User, value: string) {
@@ -79,6 +108,16 @@ export async function updateDisplayName(user: User, value: string) {
     setDoc(
       doc(db, "users", user.uid, "friends", "me"),
       { name, isMe: true, archived: false, updatedAt: now },
+      { merge: true },
+    ),
+    setDoc(
+      doc(db, "publicProfiles", user.uid),
+      {
+        uid: user.uid,
+        displayName: name,
+        photoURL: user.photoURL || null,
+        updatedAt: now,
+      },
       { merge: true },
     ),
   ]);
@@ -102,6 +141,32 @@ export async function updateUserPhoto(
 ) {
   await updateProfile(user, { photoURL });
   const now = serverTimestamp();
-  await updateDoc(doc(requireDb(), "users", user.uid), { photoURL, photoStoragePath, updatedAt: now });
+  const db = requireDb();
+  await Promise.all([
+    updateDoc(doc(db, "users", user.uid), {
+      photoURL,
+      photoStoragePath,
+      updatedAt: now,
+    }),
+    setDoc(
+      doc(db, "publicProfiles", user.uid),
+      {
+        uid: user.uid,
+        displayName: user.displayName || "User",
+        photoURL,
+        updatedAt: now,
+      },
+      { merge: true },
+    ),
+  ]);
 }
-export async function updateAppearance(uid: string, mode: AppearanceMode, theme: AccentTheme) { await updateDoc(doc(requireDb(), "users", uid), { appearance: { mode, theme }, updatedAt: serverTimestamp() }); }
+export async function updateAppearance(
+  uid: string,
+  mode: AppearanceMode,
+  theme: AccentTheme,
+) {
+  await updateDoc(doc(requireDb(), "users", uid), {
+    appearance: { mode, theme },
+    updatedAt: serverTimestamp(),
+  });
+}

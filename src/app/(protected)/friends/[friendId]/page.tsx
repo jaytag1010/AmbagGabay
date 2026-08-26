@@ -5,13 +5,24 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Pencil, RotateCcw } from "lucide-react";
 import { FriendAvatar } from "@/components/ui/FriendAvatar";
 import { Button } from "@/components/ui/Button";
+import { Dialog } from "@/components/ui/Dialog";
+import { Field } from "@/components/ui/Field";
 import { EmptyState, LoadingState, Notice } from "@/components/ui/Feedback";
 import { useAuth } from "@/hooks/useAuth";
 import { useCollectionData } from "@/hooks/useCollectionData";
 import { getFinancialOverview } from "@/services/financials";
 import { setFriendArchived, subscribeFriends } from "@/services/friends";
 import { recordSettlement } from "@/services/settlements";
-import type { FolderFinancials, SettlementDirection } from "@/types";
+import {
+  findAccount,
+  linkFriend,
+  unlinkFriend,
+} from "@/services/identityLinks";
+import type {
+  FolderFinancials,
+  PublicProfile,
+  SettlementDirection,
+} from "@/types";
 import { formatDate, friendLabel } from "@/utils/format";
 import {
   calculateBalances,
@@ -35,7 +46,13 @@ export default function FriendDetailsPage() {
   const friends = useCollectionData(friendSub),
     [folders, setFolders] = useState<FolderFinancials[]>([]),
     [error, setError] = useState<string | null>(null),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [linking, setLinking] = useState(false),
+    [gmail, setGmail] = useState(""),
+    [found, setFound] = useState<{
+      email: string;
+      profile: PublicProfile;
+    } | null>(null);
   const refresh = useCallback(
     () =>
       getFinancialOverview(uid)
@@ -195,6 +212,46 @@ export default function FriendDetailsPage() {
           </strong>
         </article>
       </section>
+      {!person.isMe && (
+        <section className="panel linked-account">
+          <h2>AmbagGabay Account</h2>
+          {person.linkedUserId ? (
+            <>
+              <p>
+                <strong>Linked</strong>
+                <br />
+                {person.linkedEmail}
+              </p>
+              <Button
+                variant="secondary"
+                onClick={async () => {
+                  if (
+                    confirm(`Unlink ${person.name} from ${person.linkedEmail}?`)
+                  )
+                    try {
+                      await unlinkFriend(uid, person);
+                    } catch (cause) {
+                      setError(
+                        cause instanceof Error
+                          ? cause.message
+                          : "Unable to unlink account.",
+                      );
+                    }
+                }}
+              >
+                Unlink Account
+              </Button>
+            </>
+          ) : (
+            <>
+              <p className="muted-copy">Not linked</p>
+              <Button variant="secondary" onClick={() => setLinking(true)}>
+                Link Gmail
+              </Button>
+            </>
+          )}
+        </section>
+      )}
       <DebtSection
         title={person.isMe ? "You Owe" : `${person.name} Owes`}
         rows={owes}
@@ -302,6 +359,85 @@ export default function FriendDetailsPage() {
             ))}
         </div>
       )}
+      <Dialog
+        open={linking}
+        title="Link AmbagGabay Account"
+        onClose={() => {
+          setLinking(false);
+          setFound(null);
+        }}
+      >
+        <Field
+          label="Registered Gmail"
+          type="email"
+          value={gmail}
+          onChange={(event) => setGmail(event.target.value)}
+        />
+        {found && (
+          <div className="account-found">
+            <h3>Account found</h3>
+            <p>
+              <strong>{found.profile.displayName}</strong>
+              <br />
+              {found.email}
+            </p>
+            <p>
+              Link this account to <strong>{person.name}</strong>?
+            </p>
+          </div>
+        )}
+        <div className="dialog-actions">
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setLinking(false);
+              setFound(null);
+            }}
+          >
+            Cancel
+          </Button>
+          <span />
+          {found ? (
+            <Button
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  await linkFriend(uid, person, found.email, found.profile);
+                  setLinking(false);
+                  setFound(null);
+                } catch (cause) {
+                  setError(
+                    cause instanceof Error
+                      ? cause.message
+                      : "Unable to link account.",
+                  );
+                } finally {
+                  setBusy(false);
+                }
+              }}
+              disabled={busy}
+            >
+              Link Account
+            </Button>
+          ) : (
+            <Button
+              onClick={async () => {
+                try {
+                  setFound(await findAccount(gmail));
+                } catch (cause) {
+                  setError(
+                    cause instanceof Error
+                      ? cause.message
+                      : "Account lookup failed.",
+                  );
+                }
+              }}
+            >
+              Find Account
+            </Button>
+          )}
+        </div>
+      </Dialog>
       <h2 className="section-title">Settlement History</h2>
       {!settlements.filter(
         (s) => s.fromFriendId === friendId || s.toFriendId === friendId,

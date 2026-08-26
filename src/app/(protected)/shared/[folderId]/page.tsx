@@ -1,0 +1,346 @@
+"use client";
+import Link from "next/link";
+import { useParams } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
+import { ArrowLeft, Plus, Trash2 } from "lucide-react";
+import { Button } from "@/components/ui/Button";
+import { Dialog } from "@/components/ui/Dialog";
+import { Field, SelectField } from "@/components/ui/Field";
+import { EmptyState, LoadingState, Notice } from "@/components/ui/Feedback";
+import { useAuth } from "@/hooks/useAuth";
+import { useCollectionData } from "@/hooks/useCollectionData";
+import {
+  deleteSharedContribution,
+  getSharedFolder,
+  saveSharedContribution,
+  subscribeSharedContributions,
+  subscribeSharedFolders,
+  subscribeSharedPeople,
+} from "@/services/sharing";
+import type { ContributionWithExpenses, SharedFolder } from "@/types";
+import { contributionTotal, folderTotal, formatMoney } from "@/utils/money";
+import { formatDate } from "@/utils/format";
+type DraftItem = {
+  id: string;
+  title: string;
+  amount: string;
+  payerFriendId: string;
+  participantIds: string[];
+};
+export default function SharedFolderPage() {
+  const { folderId } = useParams<{ folderId: string }>(),
+    auth = useAuth(),
+    uid = auth.currentUser!.uid;
+  const contributionSub = useCallback(
+    (
+      next: Parameters<typeof subscribeSharedContributions>[1],
+      fail: Parameters<typeof subscribeSharedContributions>[2],
+    ) => subscribeSharedContributions(folderId, next, fail),
+    [folderId],
+  );
+  const membershipSub = useCallback(
+    (
+      next: Parameters<typeof subscribeSharedFolders>[1],
+      fail: Parameters<typeof subscribeSharedFolders>[2],
+    ) => subscribeSharedFolders(uid, next, fail),
+    [uid],
+  );
+  const peopleSub = useCallback(
+    (
+      next: Parameters<typeof subscribeSharedPeople>[1],
+      fail: Parameters<typeof subscribeSharedPeople>[2],
+    ) => subscribeSharedPeople(folderId, next, fail),
+    [folderId],
+  );
+  const contributions = useCollectionData(contributionSub),
+    memberships = useCollectionData(membershipSub),
+    people = useCollectionData(peopleSub),
+    [folder, setFolder] = useState<SharedFolder | null>(null),
+    [error, setError] = useState<string | null>(null),
+    [editing, setEditing] = useState<ContributionWithExpenses | "new" | null>(
+      null,
+    ),
+    [title, setTitle] = useState(""),
+    [payer, setPayer] = useState(""),
+    [participants, setParticipants] = useState<string[]>([]),
+    [items, setItems] = useState<DraftItem[]>([]),
+    [busy, setBusy] = useState(false);
+  useEffect(() => {
+    getSharedFolder(folderId)
+      .then(setFolder)
+      .catch(() => setError("Unable to open shared folder."));
+  }, [folderId]);
+  const membership = memberships.items.find(
+      (item) => item.folder.id === folderId,
+    )?.membership,
+    canEdit = membership?.role === "owner" || membership?.role === "editor";
+  const label = (id: string) => {
+    const person = people.items.find((item) => item.id === id);
+    return person?.linkedUserId === uid
+      ? `Me (${auth.currentUser?.displayName || "User"})`
+      : person?.displayNameSnapshot || "Unknown";
+  };
+  function open(value: ContributionWithExpenses | "new") {
+    setEditing(value);
+    if (value === "new") {
+      const me =
+        people.items.find((item) => item.linkedUserId === uid)?.id ||
+        people.items[0]?.id ||
+        "";
+      setTitle("");
+      setPayer(me);
+      setParticipants(people.items.map((item) => item.id));
+      setItems([
+        {
+          id: crypto.randomUUID(),
+          title: "",
+          amount: "",
+          payerFriendId: me,
+          participantIds: people.items.map((item) => item.id),
+        },
+      ]);
+    } else {
+      setTitle(value.title);
+      setPayer(value.payerFriendId);
+      setParticipants(value.participantIds);
+      setItems(
+        value.expenses.map((item) => ({
+          id: item.id,
+          title: item.title,
+          amount: String(item.amount),
+          payerFriendId: item.payerFriendId || value.payerFriendId,
+          participantIds: item.participantIds,
+        })),
+      );
+    }
+  }
+  async function save() {
+    if (!folder) return;
+    setBusy(true);
+    try {
+      await saveSharedContribution(
+        uid,
+        auth.currentUser?.displayName || "User",
+        folderId,
+        {
+          title,
+          date: new Date(),
+          payerFriendId: payer,
+          participantIds: participants,
+          expenses: items.map((item) => ({
+            title: item.title,
+            amount: Number(item.amount),
+            payerFriendId: item.payerFriendId,
+            participantIds: item.participantIds,
+          })),
+        },
+        editing === "new" ? undefined : editing?.id,
+      );
+      setEditing(null);
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Unable to save contribution.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  if (!folder || contributions.loading || memberships.loading || people.loading)
+    return <LoadingState label="Opening shared folder…" />;
+  if (!membership)
+    return <Notice message="You no longer have access to this folder." />;
+  return (
+    <>
+      <Link href="/" className="back-link">
+        <ArrowLeft size={18} /> Home
+      </Link>
+      <header className="folder-hero">
+        <span>{folder.icon || "📁"}</span>
+        <div>
+          <p>Shared by {folder.ownerNameSnapshot}</p>
+          <h1>{folder.name}</h1>
+          <small>
+            {membership.role === "viewer"
+              ? "Viewer access · Read only"
+              : `${membership.role[0].toUpperCase() + membership.role.slice(1)} access`}
+          </small>
+        </div>
+        {membership.role === "owner" && (
+          <Link
+            className="button button-secondary folder-action"
+            href={`/shared/${folderId}/sharing`}
+          >
+            Manage Sharing
+          </Link>
+        )}
+        {canEdit && (
+          <Button onClick={() => open("new")}>
+            <Plus size={17} /> Add Contribution
+          </Button>
+        )}
+      </header>
+      <Notice message={contributions.error || people.error || error} />
+      <section className="summary-grid">
+        <article className="metric">
+          <span>Total Expenses</span>
+          <strong>{formatMoney(folderTotal(contributions.items))}</strong>
+        </article>
+        <article className="metric">
+          <span>Contributions</span>
+          <strong>{contributions.items.length}</strong>
+        </article>
+      </section>
+      <h2 className="section-title">Contributions</h2>
+      {!contributions.items.length ? (
+        <EmptyState
+          title="No contributions yet"
+          description="Shared contributions will appear here."
+        />
+      ) : (
+        <div className="list">
+          {contributions.items.map((item) => (
+            <article
+              className="data-row"
+              key={item.id}
+              onClick={() => canEdit && open(item)}
+            >
+              <div>
+                <small>{formatDate(item.date)}</small>
+                <h2>{item.title}</h2>
+                {item.createdByUserId && (
+                  <p>
+                    Created by{" "}
+                    {item.createdByUserId === uid
+                      ? "You"
+                      : item.createdByNameSnapshot || "Unknown"}
+                  </p>
+                )}
+              </div>
+              <strong>{formatMoney(contributionTotal(item))}</strong>
+            </article>
+          ))}
+        </div>
+      )}
+      <Dialog
+        open={!!editing}
+        title={
+          editing === "new"
+            ? "Add Shared Contribution"
+            : "Edit Shared Contribution"
+        }
+        onClose={() => setEditing(null)}
+      >
+        <div className="dialog-form">
+          <Field
+            label="Title"
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+          />
+          <SelectField
+            label="Default paid by"
+            value={payer}
+            onChange={(event) => setPayer(event.target.value)}
+          >
+            {people.items.map((person) => (
+              <option key={person.id} value={person.id}>
+                {label(person.id)}
+              </option>
+            ))}
+          </SelectField>
+          {items.map((item, index) => (
+            <section className="expense-item-card" key={item.id}>
+              <h3>Expense Item {index + 1}</h3>
+              <Field
+                label="Item"
+                value={item.title}
+                onChange={(event) =>
+                  setItems((values) =>
+                    values.map((value) =>
+                      value.id === item.id
+                        ? { ...value, title: event.target.value }
+                        : value,
+                    ),
+                  )
+                }
+              />
+              <Field
+                label="Amount"
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={item.amount}
+                onChange={(event) =>
+                  setItems((values) =>
+                    values.map((value) =>
+                      value.id === item.id
+                        ? { ...value, amount: event.target.value }
+                        : value,
+                    ),
+                  )
+                }
+              />
+              <SelectField
+                label="Paid by"
+                value={item.payerFriendId}
+                onChange={(event) =>
+                  setItems((values) =>
+                    values.map((value) =>
+                      value.id === item.id
+                        ? { ...value, payerFriendId: event.target.value }
+                        : value,
+                    ),
+                  )
+                }
+              >
+                {people.items.map((person) => (
+                  <option key={person.id} value={person.id}>
+                    {label(person.id)}
+                  </option>
+                ))}
+              </SelectField>
+            </section>
+          ))}
+          <Button
+            variant="secondary"
+            onClick={() =>
+              setItems((values) => [
+                ...values,
+                {
+                  id: crypto.randomUUID(),
+                  title: "",
+                  amount: "",
+                  payerFriendId: payer,
+                  participantIds: [...participants],
+                },
+              ])
+            }
+          >
+            <Plus size={17} /> Add Another Item
+          </Button>
+          <div className="dialog-actions">
+            {editing !== "new" && (
+              <Button
+                variant="danger"
+                onClick={async () => {
+                  if (editing && confirm(`Delete ${editing.title}?`)) {
+                    await deleteSharedContribution(uid, folderId, editing.id);
+                    setEditing(null);
+                  }
+                }}
+              >
+                <Trash2 size={17} /> Delete
+              </Button>
+            )}
+            <span />
+            <Button variant="secondary" onClick={() => setEditing(null)}>
+              Cancel
+            </Button>
+            <Button disabled={busy} onClick={save}>
+              Save
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+    </>
+  );
+}

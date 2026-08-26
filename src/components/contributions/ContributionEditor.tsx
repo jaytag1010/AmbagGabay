@@ -28,7 +28,7 @@ const newItem = (ids: string[], payer: string): ExpenseDraft => ({
   participantIds: [...ids],
 });
 export function ContributionEditor() {
-  const uid = useAuth().currentUser!.uid;
+  const auth=useAuth(),uid = auth.currentUser!.uid;
   const router = useRouter();
   const params = useSearchParams();
   const initialFolder = params.get("folder") || "";
@@ -230,6 +230,7 @@ export function ContributionEditor() {
           })),
         },
         editId || undefined,
+        auth.currentUser?.displayName || "User",
       );
       router.push(`/folders/${folderId}?contribution=${id}`);
     } catch (cause) {

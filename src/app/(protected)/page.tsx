@@ -11,6 +11,11 @@ import { useAuth } from "@/hooks/useAuth";
 import { useCollectionData } from "@/hooks/useCollectionData";
 import { usePersistentSort } from "@/hooks/usePersistentSort";
 import { getFinancialOverview } from "@/services/financials";
+import {
+  respondInvitation,
+  subscribeInvitations,
+  subscribeSharedFolders,
+} from "@/services/sharing";
 import { subscribeFriendGroups } from "@/services/friendGroups";
 import {
   createFolder,
@@ -50,8 +55,24 @@ export default function DashboardPage() {
     ) => subscribeFriendGroups(uid, next, fail),
     [uid],
   );
+  const invitationSub = useCallback(
+    (
+      next: Parameters<typeof subscribeInvitations>[1],
+      fail: Parameters<typeof subscribeInvitations>[2],
+    ) => subscribeInvitations(uid, next, fail),
+    [uid],
+  );
+  const sharedSub = useCallback(
+    (
+      next: Parameters<typeof subscribeSharedFolders>[1],
+      fail: Parameters<typeof subscribeSharedFolders>[2],
+    ) => subscribeSharedFolders(uid, next, fail),
+    [uid],
+  );
   const folders = useCollectionData(folderSub),
-    groups = useCollectionData(groupSub);
+    groups = useCollectionData(groupSub),
+    invitations = useCollectionData(invitationSub),
+    shared = useCollectionData(sharedSub);
   const [financials, setFinancials] = useState<FolderFinancials[]>([]),
     [editing, setEditing] = useState<Folder | "new" | null>(null),
     [deleting, setDeleting] = useState<Folder | null>(null),
@@ -159,7 +180,13 @@ export default function DashboardPage() {
         </select>
       </label>
       <Notice
-        message={folders.error || groups.error || message}
+        message={
+          folders.error ||
+          groups.error ||
+          invitations.error ||
+          shared.error ||
+          message
+        }
         tone={
           message?.includes("created") ||
           message?.includes("updated") ||
@@ -168,6 +195,54 @@ export default function DashboardPage() {
             : "error"
         }
       />
+      {invitations.items.length > 0 && (
+        <section className="invitation-section">
+          <h2>Invitations ({invitations.items.length})</h2>
+          <div className="folder-grid">
+            {invitations.items.map((invitation) => (
+              <article className="panel invitation-card" key={invitation.id}>
+                <small>Folder Invitation</small>
+                <h3>{invitation.folderNameSnapshot}</h3>
+                <p>From {invitation.ownerNameSnapshot}</p>
+                <strong>
+                  {invitation.role === "editor"
+                    ? "Editor access"
+                    : "Viewer access"}
+                </strong>
+                <div className="dialog-actions">
+                  <Button
+                    variant="secondary"
+                    onClick={() =>
+                      respondInvitation(
+                        uid,
+                        invitation,
+                        false,
+                        currentUser!.displayName || "User",
+                      )
+                    }
+                  >
+                    Decline
+                  </Button>
+                  <span />
+                  <Button
+                    onClick={() =>
+                      respondInvitation(
+                        uid,
+                        invitation,
+                        true,
+                        currentUser!.displayName || "User",
+                      )
+                    }
+                  >
+                    Accept
+                  </Button>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+      <h2 className="section-title">My Folders</h2>
       {folders.loading ? (
         <LoadingState label="Loading folders…" />
       ) : !folders.items.length ? (
@@ -186,9 +261,20 @@ export default function DashboardPage() {
             const data = financials.find(
               (item) => item.folder.id === folder.id,
             );
+            const promoted = shared.items.find(
+              (item) =>
+                item.membership.role === "owner" &&
+                item.folder.sourceFolderId === folder.id,
+            );
             return (
               <article className="folder-card" key={folder.id}>
-                <Link href={`/folders/${folder.id}`}>
+                <Link
+                  href={
+                    promoted
+                      ? `/shared/${promoted.folder.id}`
+                      : `/folders/${folder.id}`
+                  }
+                >
                   <span className="folder-icon">{folder.icon || "📁"}</span>
                   <h2>{folder.name}</h2>
                   <p>
@@ -210,20 +296,52 @@ export default function DashboardPage() {
                       : "Creation date unavailable"}
                   </small>
                 </Link>
-                <button
-                  className="icon-button card-menu"
-                  aria-label={`Edit ${folder.name}`}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    setEditing(folder);
-                  }}
-                >
-                  <MoreHorizontal />
-                </button>
+                {!promoted && (
+                  <button
+                    className="icon-button card-menu"
+                    aria-label={`Edit ${folder.name}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setEditing(folder);
+                    }}
+                  >
+                    <MoreHorizontal />
+                  </button>
+                )}
               </article>
             );
           })}
         </div>
+      )}
+      {shared.items.some((item) => item.membership.role !== "owner") && (
+        <>
+          <h2 className="section-title">Shared With Me</h2>
+          <div className="folder-grid">
+            {shared.items
+              .filter((item) => item.membership.role !== "owner")
+              .map(({ folder, membership }) => (
+                <article className="folder-card" key={folder.id}>
+                  <Link href={`/shared/${folder.id}`}>
+                    <span className="folder-icon">{folder.icon || "📁"}</span>
+                    <h2>{folder.name}</h2>
+                    <p>Shared by {folder.ownerNameSnapshot}</p>
+                    <div className="folder-card-total">
+                      <small>Access</small>
+                      <strong>
+                        {membership.role[0].toUpperCase() +
+                          membership.role.slice(1)}
+                      </strong>
+                    </div>
+                    <small>
+                      {folder.createdAt
+                        ? `Created ${formatDate(folder.createdAt)}`
+                        : "Creation date unavailable"}
+                    </small>
+                  </Link>
+                </article>
+              ))}
+          </div>
+        </>
       )}
       <Dialog
         open={!!editing}

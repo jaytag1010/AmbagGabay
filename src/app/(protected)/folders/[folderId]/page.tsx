@@ -2,11 +2,12 @@
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Pencil, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Pencil, Plus, Share2, Trash2 } from "lucide-react";
 import { FriendAvatar } from "@/components/ui/FriendAvatar";
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { EmptyState, LoadingState, Notice } from "@/components/ui/Feedback";
+import { Field, SelectField } from "@/components/ui/Field";
 import { useAuth } from "@/hooks/useAuth";
 import { useCollectionData } from "@/hooks/useCollectionData";
 import {
@@ -16,6 +17,7 @@ import {
 import { subscribeFriends } from "@/services/friends";
 import { getFolder } from "@/services/folders";
 import { subscribeSettlements } from "@/services/settlements";
+import { inviteToFolder } from "@/services/sharing";
 import type { ContributionWithExpenses, Folder } from "@/types";
 import { formatDate, friendLabel } from "@/utils/format";
 import {
@@ -33,7 +35,8 @@ type Tab = (typeof tabs)[number];
 export default function FolderDetailPage() {
   const { folderId } = useParams<{ folderId: string }>();
   const search = useSearchParams(),
-    uid = useAuth().currentUser!.uid;
+    auth = useAuth(),
+    uid = auth.currentUser!.uid;
   const [folder, setFolder] = useState<Folder | null>(),
     [tab, setTab] = useState<Tab>("contributions"),
     [error, setError] = useState<string | null>(null),
@@ -44,7 +47,12 @@ export default function FolderDetailPage() {
     } | null>(null),
     [personId, setPersonId] = useState<string | null>(null),
     [showAll, setShowAll] = useState(false),
-    [deleting, setDeleting] = useState(false);
+    [deleting, setDeleting] = useState(false),
+    [sharing, setSharing] = useState(false),
+    [shareGmail, setShareGmail] = useState(""),
+    [shareRole, setShareRole] = useState<"editor" | "viewer">("editor"),
+    [sharingBusy, setSharingBusy] = useState(false),
+    [sharedFolderId, setSharedFolderId] = useState<string | null>(null);
   const contributionSub = useCallback(
     (
       next: Parameters<typeof subscribeContributions>[2],
@@ -60,13 +68,18 @@ export default function FolderDetailPage() {
     [uid],
   );
   const settlementSub = useCallback(
-    (next: Parameters<typeof subscribeSettlements>[1], fail: NonNullable<Parameters<typeof subscribeSettlements>[2]>) => subscribeSettlements(uid, next, fail),
+    (
+      next: Parameters<typeof subscribeSettlements>[1],
+      fail: NonNullable<Parameters<typeof subscribeSettlements>[2]>,
+    ) => subscribeSettlements(uid, next, fail),
     [uid],
   );
   const contributions = useCollectionData(contributionSub),
     friends = useCollectionData(friendSub),
     allSettlements = useCollectionData(settlementSub),
-    settlements = allSettlements.items.filter((item) => item.folderId === folderId);
+    settlements = allSettlements.items.filter(
+      (item) => item.folderId === folderId,
+    );
   useEffect(() => {
     getFolder(uid, folderId)
       .then(setFolder)
@@ -85,7 +98,10 @@ export default function FolderDetailPage() {
     if (!detail) return;
     const dismiss = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement;
-      if (event.key === "Enter" && !target.matches("input,textarea,select,[contenteditable=true]")) {
+      if (
+        event.key === "Enter" &&
+        !target.matches("input,textarea,select,[contenteditable=true]")
+      ) {
         event.preventDefault();
         setDetail(null);
       }
@@ -115,7 +131,8 @@ export default function FolderDetailPage() {
     );
   async function remove() {
     if (!detail) return;
-    if (!confirm(`Delete ${detail.title} and all of its expense items?`)) return;
+    if (!confirm(`Delete ${detail.title} and all of its expense items?`))
+      return;
     setDeleting(true);
     try {
       await deleteContribution(uid, folderId, detail.id);
@@ -158,12 +175,17 @@ export default function FolderDetailPage() {
           <p>Folder</p>
           <h1>{folder.name}</h1>
         </div>
-        <Link
-          className="button button-primary folder-action"
-          href={`/contributions/new?folder=${folderId}`}
-        >
-          <Plus size={18} /> Add Contribution
-        </Link>
+        <div className="header-actions folder-action">
+          <Button variant="secondary" onClick={() => setSharing(true)}>
+            <Share2 size={18} /> Share
+          </Button>
+          <Link
+            className="button button-primary"
+            href={`/contributions/new?folder=${folderId}`}
+          >
+            <Plus size={18} /> Add Contribution
+          </Link>
+        </div>
       </header>
       <Notice message={contributions.error || friends.error || error} />
       <div className="tabs" role="tablist">
@@ -205,6 +227,14 @@ export default function FolderDetailPage() {
                   <div>
                     <small>{formatDate(item.date)}</small>
                     <h2>{item.title}</h2>
+                    {item.createdByUserId && (
+                      <p>
+                        Created by{" "}
+                        {item.createdByUserId === uid
+                          ? "You"
+                          : item.createdByNameSnapshot || "Unknown"}
+                      </p>
+                    )}
                     <p>{payerSummary(item)}</p>
                   </div>
                   <div>
@@ -356,6 +386,70 @@ export default function FolderDetailPage() {
           ))}
       </section>
       <Dialog
+        open={sharing}
+        title="Share Folder"
+        onClose={() => setSharing(false)}
+      >
+        <Field
+          label="Gmail address"
+          type="email"
+          value={shareGmail}
+          onChange={(event) => setShareGmail(event.target.value)}
+        />
+        <SelectField
+          label="Role"
+          value={shareRole}
+          onChange={(event) =>
+            setShareRole(event.target.value as "editor" | "viewer")
+          }
+        >
+          <option value="editor">Editor</option>
+          <option value="viewer">Viewer</option>
+        </SelectField>
+        <div className="dialog-actions">
+          <Button variant="secondary" onClick={() => setSharing(false)}>
+            Cancel
+          </Button>
+          <span />
+          {sharedFolderId && (
+            <Link
+              className="button button-secondary"
+              href={`/shared/${sharedFolderId}/sharing`}
+            >
+              Manage Sharing
+            </Link>
+          )}
+          <Button
+            disabled={sharingBusy}
+            onClick={async () => {
+              if (!folder) return;
+              setSharingBusy(true);
+              try {
+                const result = await inviteToFolder(
+                  uid,
+                  folder,
+                  auth.currentUser!.displayName || "User",
+                  shareGmail,
+                  shareRole,
+                );
+                setSharedFolderId(result.folderId);
+                setError("Invitation sent.");
+              } catch (cause) {
+                setError(
+                  cause instanceof Error
+                    ? cause.message
+                    : "Unable to send invitation.",
+                );
+              } finally {
+                setSharingBusy(false);
+              }
+            }}
+          >
+            Send Invitation
+          </Button>
+        </div>
+      </Dialog>
+      <Dialog
         open={!!detail}
         title={detail?.title || "Contribution"}
         onClose={() => setDetail(null)}
@@ -365,6 +459,14 @@ export default function FolderDetailPage() {
             <p>
               {formatDate(detail.date)} · {payerSummary(detail)}
             </p>
+            {detail.createdByUserId && (
+              <p>
+                Created by{" "}
+                {detail.createdByUserId === uid
+                  ? "You"
+                  : detail.createdByNameSnapshot || "Unknown"}
+              </p>
+            )}
             <h3>{formatMoney(contributionTotal(detail))} total</h3>
             <div className="detail-expenses">
               {detail.expenses.map((expense) => (

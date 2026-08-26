@@ -1,34 +1,64 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function isOwner(uid) { return request.auth != null && request.auth.uid == uid; }
+    function signedIn() { return request.auth != null; }
+    function isOwner(uid) { return signedIn() && request.auth.uid == uid; }
+    function sharedFolder(folderId) { return get(/databases/$(database)/documents/sharedFolders/$(folderId)); }
+    function membership(folderId) { return get(/databases/$(database)/documents/sharedFolders/$(folderId)/members/$(request.auth.uid)); }
+    function sharedOwner(folderId) { return signedIn() && sharedFolder(folderId).data.ownerId == request.auth.uid; }
+    function sharedMember(folderId) { return signedIn() && exists(/databases/$(database)/documents/sharedFolders/$(folderId)/members/$(request.auth.uid)); }
+    function sharedEditor(folderId) { return sharedMember(folderId) && membership(folderId).data.role in ['owner','editor']; }
+
     match /users/{uid} {
       allow read: if isOwner(uid);
       allow create: if isOwner(uid) && request.resource.data.uid == uid;
-      allow update: if isOwner(uid)
-        && resource.data.uid == uid
-        && request.resource.data.uid == uid;
+      allow update: if isOwner(uid) && resource.data.uid == uid && request.resource.data.uid == uid;
       allow delete: if false;
-      match /friends/{friendId} {
-        allow read: if isOwner(uid);
-        allow create: if isOwner(uid)
-          && (friendId != 'me'
-            || (request.resource.data.isMe == true
-              && request.resource.data.archived == false));
-        allow update: if isOwner(uid)
-          && !(friendId == 'me' && (request.resource.data.isMe != true || request.resource.data.archived != false));
-        allow delete: if false;
-      }
+      match /friends/{friendId} { allow read: if isOwner(uid); allow create: if isOwner(uid) && (friendId != 'me' || (request.resource.data.isMe == true && request.resource.data.archived == false)); allow update: if isOwner(uid) && !(friendId == 'me' && (request.resource.data.isMe != true || request.resource.data.archived != false)); allow delete: if false; }
+      match /friendLinks/{linkedUid} { allow read, write: if isOwner(uid); }
       match /friendGroups/{groupId} { allow read, write: if isOwner(uid); }
       match /folders/{folderId} {
         allow read, write: if isOwner(uid);
         match /contributions/{contributionId} {
-          allow read, write: if isOwner(uid);
+          allow read: if isOwner(uid);
+          allow create: if isOwner(uid) && request.resource.data.createdByUserId == request.auth.uid;
+          allow update: if isOwner(uid) && ((!resource.data.keys().hasAny(['createdByUserId']) && !request.resource.data.keys().hasAny(['createdByUserId'])) || request.resource.data.createdByUserId == resource.data.createdByUserId);
+          allow delete: if isOwner(uid);
           match /expenses/{expenseId} { allow read, write: if isOwner(uid); }
         }
       }
       match /settlements/{settlementId} { allow read, write: if isOwner(uid); }
       match /activities/{activityId} { allow read, write: if isOwner(uid); }
+    }
+
+    match /publicProfiles/{uid} { allow read: if signedIn(); allow create, update: if isOwner(uid) && request.resource.data.uid == uid; allow delete: if false; }
+    match /userDirectory/{lookupId} { allow get: if signedIn(); allow list: if false; allow create: if signedIn() && request.resource.data.uid == request.auth.uid; allow update: if signedIn() && resource.data.uid == request.auth.uid && request.resource.data.uid == request.auth.uid; allow delete: if false; }
+
+    match /sharedFolders/{folderId} {
+      allow create: if signedIn() && request.resource.data.ownerId == request.auth.uid;
+      allow read: if sharedMember(folderId);
+      allow update: if sharedOwner(folderId) && request.resource.data.ownerId == resource.data.ownerId;
+      allow delete: if sharedOwner(folderId);
+      match /members/{memberId} {
+        allow read: if signedIn() && (request.auth.uid == memberId || resource.data.userId == request.auth.uid || sharedOwner(folderId));
+        allow create: if sharedOwner(folderId) || (request.auth.uid == memberId && request.resource.data.role == 'owner' && getAfter(/databases/$(database)/documents/sharedFolders/$(folderId)).data.ownerId == request.auth.uid) || (request.auth.uid == memberId && get(/databases/$(database)/documents/folderInvitations/$(folderId + '_' + memberId)).data.status == 'pending' && request.resource.data.role == get(/databases/$(database)/documents/folderInvitations/$(folderId + '_' + memberId)).data.role);
+        allow update, delete: if sharedOwner(folderId) && memberId != sharedFolder(folderId).data.ownerId;
+      }
+      match /people/{personId} { allow read: if sharedMember(folderId); allow write: if sharedOwner(folderId); }
+      match /settlements/{settlementId} { allow read: if sharedMember(folderId); allow write: if sharedEditor(folderId) || getAfter(/databases/$(database)/documents/sharedFolders/$(folderId)).data.ownerId == request.auth.uid; }
+      match /contributions/{contributionId} {
+        allow read: if sharedMember(folderId);
+        allow create: if (sharedEditor(folderId) && request.resource.data.createdByUserId == request.auth.uid) || (getAfter(/databases/$(database)/documents/sharedFolders/$(folderId)).data.ownerId == request.auth.uid && (!request.resource.data.keys().hasAny(['createdByUserId']) || request.resource.data.createdByUserId == request.auth.uid));
+        allow update: if sharedEditor(folderId) && ((!resource.data.keys().hasAny(['createdByUserId']) && !request.resource.data.keys().hasAny(['createdByUserId'])) || request.resource.data.createdByUserId == resource.data.createdByUserId);
+        allow delete: if sharedEditor(folderId);
+        match /expenses/{expenseId} { allow read: if sharedMember(folderId); allow write: if sharedEditor(folderId) || getAfter(/databases/$(database)/documents/sharedFolders/$(folderId)).data.ownerId == request.auth.uid; }
+      }
+    }
+    match /folderInvitations/{invitationId} {
+      allow read: if signedIn() && (resource.data.recipientUid == request.auth.uid || resource.data.ownerId == request.auth.uid);
+      allow create: if signedIn() && request.resource.data.ownerId == request.auth.uid && sharedOwner(request.resource.data.folderId) && request.resource.data.role in ['editor','viewer'] && request.resource.data.status == 'pending' && request.resource.data.recipientUid != request.auth.uid;
+      allow update: if signedIn() && ((resource.data.recipientUid == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','respondedAt']) && request.resource.data.status in ['accepted','declined']) || (resource.data.ownerId == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','respondedAt']) && request.resource.data.status == 'cancelled'));
+      allow delete: if false;
     }
     match /{document=**} { allow read, write: if false; }
   }

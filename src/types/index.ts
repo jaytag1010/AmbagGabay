@@ -11,7 +11,14 @@ export interface UserProfile {
   appearance?: { mode?: AppearanceMode; theme?: AccentTheme };
 }
 export type AppearanceMode = "system" | "light" | "dark";
-export type AccentTheme = "ambag-green" | "ocean-blue" | "teal" | "violet" | "rose" | "amber" | "slate";
+export type AccentTheme =
+  | "ambag-green"
+  | "ocean-blue"
+  | "teal"
+  | "violet"
+  | "rose"
+  | "amber"
+  | "slate";
 export interface Friend {
   id: string;
   name: string;
@@ -22,6 +29,8 @@ export interface Friend {
   photoStoragePath?: string | null;
   createdAt: Timestamp;
   updatedAt: Timestamp;
+  linkedUserId?: string | null;
+  linkedEmail?: string | null;
 }
 export interface FriendGroup {
   id: string;
@@ -46,6 +55,44 @@ export interface Contribution {
   participantIds: string[];
   createdAt: Timestamp;
   updatedAt: Timestamp;
+  createdByUserId?: string;
+  createdByNameSnapshot?: string;
+}
+export type FolderRole = "owner" | "editor" | "viewer";
+export interface PublicProfile {
+  uid: string;
+  displayName: string;
+  photoURL?: string | null;
+}
+export interface DirectoryEntry extends PublicProfile {
+  normalizedEmail: string;
+}
+export interface SharedFolder extends Folder {
+  ownerId: string;
+  ownerNameSnapshot: string;
+  sourceFolderId?: string;
+}
+export interface FolderMembership {
+  id: string;
+  userId: string;
+  role: FolderRole;
+  displayNameSnapshot: string;
+  joinedAt: Timestamp;
+}
+export interface SharedPerson { id:string; friendId:string; linkedUserId?:string|null; displayNameSnapshot:string; photoURLSnapshot?:string|null }
+export interface FolderInvitation {
+  id: string;
+  folderId: string;
+  folderNameSnapshot: string;
+  ownerId: string;
+  ownerNameSnapshot: string;
+  recipientUid: string;
+  recipientEmail: string;
+  recipientNameSnapshot: string;
+  role: Exclude<FolderRole, "owner">;
+  status: "pending" | "accepted" | "declined" | "cancelled";
+  createdAt: Timestamp;
+  respondedAt?: Timestamp | null;
 }
 export interface Expense {
   id: string;
