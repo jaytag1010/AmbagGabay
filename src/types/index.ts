@@ -80,6 +80,8 @@ export interface FolderMembership {
   joinedAt: Timestamp;
 }
 export interface SharedPerson { id:string; friendId:string; linkedUserId?:string|null; displayNameSnapshot:string; photoURLSnapshot?:string|null }
+export interface ProposedFolderPerson { sourceFriendId:string; linkedUserId?:string|null; displayNameSnapshot:string; photoURLSnapshot?:string|null }
+export interface FolderPersonRequest { id:string; folderId:string; proposerUid:string; proposerNameSnapshot:string; people:ProposedFolderPerson[]; status:"pending"|"approved"|"rejected"; createdAt:Timestamp; respondedAt?:Timestamp|null; respondedBy?:string|null }
 export interface FolderInvitation {
   id: string;
   folderId: string;

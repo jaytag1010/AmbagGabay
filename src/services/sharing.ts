@@ -19,6 +19,8 @@ import type {
   Folder,
   FolderInvitation,
   FolderMembership,
+  FolderPersonRequest,
+  Friend,
   SharedFolder,
   SharedPerson,
 } from "@/types";
@@ -279,6 +281,28 @@ export function subscribeSharedPeople(
     onError,
   );
 }
+export function subscribeFolderPersonRequests(folderId: string, next: (items: FolderPersonRequest[]) => void, onError: (error: Error) => void) {
+  return onSnapshot(collection(requireDb(), "sharedFolders", folderId, "personRequests"), snapshot => next(snapshot.docs.map(item => ({ id: item.id, ...item.data() }) as FolderPersonRequest)), onError);
+}
+export async function requestFolderPeople(uid: string, userName: string, folderId: string, selectedFriends: Friend[]) {
+  const people = selectedFriends.filter(friend => !friend.archived).map(friend => ({ sourceFriendId: friend.id, linkedUserId: friend.id === "me" ? uid : friend.linkedUserId || null, displayNameSnapshot: friend.id === "me" ? userName : friend.name, photoURLSnapshot: friend.photoURL || null }));
+  if (!people.length) throw new Error("Select at least one person to propose.");
+  const db = requireDb(), ref = doc(collection(db, "sharedFolders", folderId, "personRequests")), batch = writeBatch(db);
+  batch.set(ref, { folderId, proposerUid: uid, proposerNameSnapshot: userName, people, status: "pending", createdAt: serverTimestamp(), respondedAt: null, respondedBy: null });
+  await batch.commit();
+  await logActivity(uid, { action: "Folder people proposed", description: `${people.map(person => person.displayNameSnapshot).join(", ")} proposed`, entityType: "folder", entityId: folderId });
+}
+export async function respondFolderPersonRequest(uid: string, folder: SharedFolder, request: FolderPersonRequest, approve: boolean) {
+  if (folder.ownerId !== uid) throw new Error("Only the folder owner can respond.");
+  const db = requireDb(), requestRef = doc(db, "sharedFolders", folder.id, "personRequests", request.id), currentPeople = await getDocs(collection(db, "sharedFolders", folder.id, "people")), linkedIds = new Set(currentPeople.docs.map(item => item.data().linkedUserId).filter(Boolean)), batch = writeBatch(db);
+  if (approve) request.people.forEach(person => {
+    if (person.linkedUserId && linkedIds.has(person.linkedUserId)) return;
+    batch.set(doc(db, "sharedFolders", folder.id, "people", `${request.proposerUid}_${person.sourceFriendId}`), { friendId: person.sourceFriendId, linkedUserId: person.linkedUserId || null, displayNameSnapshot: person.displayNameSnapshot, photoURLSnapshot: person.photoURLSnapshot || null, addedByRequestId: request.id });
+  });
+  batch.update(requestRef, { status: approve ? "approved" : "rejected", respondedAt: serverTimestamp(), respondedBy: uid });
+  await batch.commit();
+  await logActivity(uid, { action: approve ? "Folder people approved" : "Folder people rejected", description: request.people.map(person => person.displayNameSnapshot).join(", "), entityType: "folder", entityId: folder.id });
+}
 export async function saveSharedContribution(
   uid: string,
   userName: string,
@@ -506,7 +530,7 @@ export async function deleteSharedFolder(folder: SharedFolder) {
     expenses.forEach((item) => batch.delete(item.ref));
     batch.delete(contribution.ref);
   }
-  for (const child of ["members", "people", "settlements"]) {
+  for (const child of ["members", "people", "personRequests", "settlements"]) {
     const docs = await getDocs(collection(ref, child));
     docs.forEach((item) => batch.delete(item.ref));
   }

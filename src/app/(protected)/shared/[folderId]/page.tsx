@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { Field, SelectField } from "@/components/ui/Field";
@@ -12,12 +12,17 @@ import { useCollectionData } from "@/hooks/useCollectionData";
 import {
   deleteSharedContribution,
   getSharedFolder,
+  requestFolderPeople,
+  respondFolderPersonRequest,
   saveSharedContribution,
   subscribeSharedContributions,
   subscribeSharedFolders,
   subscribeSharedPeople,
+  subscribeFolderPersonRequests,
 } from "@/services/sharing";
-import type { ContributionWithExpenses, SharedFolder } from "@/types";
+import { subscribeFriends } from "@/services/friends";
+import { subscribeFriendGroups } from "@/services/friendGroups";
+import type { ContributionWithExpenses, Friend, SharedFolder } from "@/types";
 import { contributionTotal, folderTotal, formatMoney } from "@/utils/money";
 import { formatDate } from "@/utils/format";
 type DraftItem = {
@@ -52,9 +57,15 @@ export default function SharedFolderPage() {
     ) => subscribeSharedPeople(folderId, next, fail),
     [folderId],
   );
+  const requestsSub = useCallback((next: Parameters<typeof subscribeFolderPersonRequests>[1], fail: Parameters<typeof subscribeFolderPersonRequests>[2]) => subscribeFolderPersonRequests(folderId, next, fail), [folderId]);
+  const friendsSub = useCallback((next: Parameters<typeof subscribeFriends>[1], fail: Parameters<typeof subscribeFriends>[2]) => subscribeFriends(uid, next, fail), [uid]);
+  const groupsSub = useCallback((next: Parameters<typeof subscribeFriendGroups>[1], fail: Parameters<typeof subscribeFriendGroups>[2]) => subscribeFriendGroups(uid, next, fail), [uid]);
   const contributions = useCollectionData(contributionSub),
     memberships = useCollectionData(membershipSub),
     people = useCollectionData(peopleSub),
+    requests = useCollectionData(requestsSub),
+    friends = useCollectionData(friendsSub),
+    groups = useCollectionData(groupsSub),
     [folder, setFolder] = useState<SharedFolder | null>(null),
     [error, setError] = useState<string | null>(null),
     [editing, setEditing] = useState<ContributionWithExpenses | "new" | null>(
@@ -64,6 +75,8 @@ export default function SharedFolderPage() {
     [payer, setPayer] = useState(""),
     [participants, setParticipants] = useState<string[]>([]),
     [items, setItems] = useState<DraftItem[]>([]),
+    [proposing, setProposing] = useState(false),
+    [selectedFriendIds, setSelectedFriendIds] = useState<string[]>([]),
     [busy, setBusy] = useState(false);
   useEffect(() => {
     getSharedFolder(folderId)
@@ -74,6 +87,16 @@ export default function SharedFolderPage() {
       (item) => item.folder.id === folderId,
     )?.membership,
     canEdit = membership?.role === "owner" || membership?.role === "editor";
+  const pendingRequests = requests.items.filter((item) => item.status === "pending");
+  const availableFriends = friends.items.filter((friend) => !friend.archived && !people.items.some((person) => person.linkedUserId && person.linkedUserId === (friend.id === "me" ? uid : friend.linkedUserId)));
+  const toggleFriend = (id: string) => setSelectedFriendIds(values => values.includes(id) ? values.filter(value => value !== id) : [...values, id]);
+  const selectGroup = (friendIds: string[]) => setSelectedFriendIds(values => [...new Set([...values, ...friendIds.filter(id => availableFriends.some(friend => friend.id === id))])]);
+  async function submitPeopleRequest() {
+    setBusy(true); setError(null);
+    try { await requestFolderPeople(uid, auth.currentUser?.displayName || "User", folderId, friends.items.filter(friend => selectedFriendIds.includes(friend.id))); setSelectedFriendIds([]); setProposing(false); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to send request."); }
+    finally { setBusy(false); }
+  }
   const label = (id: string) => {
     const person = people.items.find((item) => item.id === id);
     return person?.linkedUserId === uid
@@ -180,6 +203,13 @@ export default function SharedFolderPage() {
         )}
       </header>
       <Notice message={contributions.error || people.error || error} />
+      {canEdit && (
+        <section className="panel people-request-panel">
+          <div className="section-heading"><div><h2>Folder People</h2><p>Editors may propose personal friends. The owner approves them before they can be used.</p></div><Button variant="secondary" onClick={() => setProposing(true)}><UserPlus size={17} /> Propose People</Button></div>
+          {membership.role === "owner" && pendingRequests.length > 0 && <div className="request-list">{pendingRequests.map(request => <article className="request-card" key={request.id}><div><strong>{request.proposerNameSnapshot}</strong><p>{request.people.map(person => person.displayNameSnapshot).join(", ")}</p></div><div className="row-actions"><Button variant="secondary" disabled={busy} onClick={() => respondFolderPersonRequest(uid, folder, request, false).catch(cause => setError(cause.message))}>Reject</Button><Button disabled={busy} onClick={() => respondFolderPersonRequest(uid, folder, request, true).catch(cause => setError(cause.message))}>Approve</Button></div></article>)}</div>}
+          {membership.role !== "owner" && pendingRequests.some(request => request.proposerUid === uid) && <small>Your pending proposals are awaiting the owner’s review.</small>}
+        </section>
+      )}
       <section className="summary-grid">
         <article className="metric">
           <span>Total Expenses</span>
@@ -221,6 +251,19 @@ export default function SharedFolderPage() {
           ))}
         </div>
       )}
+      <Dialog
+        open={proposing}
+        title="Propose People"
+        onClose={() => setProposing(false)}
+      >
+        <div className="dialog-form">
+          <p className="muted-copy">Choose individual friends or use a personal group as a selection shortcut. Only these snapshots are shared with the folder owner.</p>
+          {!!groups.items.length && <div className="group-shortcuts">{groups.items.map(group => <Button key={group.id} variant="ghost" onClick={() => selectGroup(group.friendIds)}>{group.name}</Button>)}</div>}
+          <div className="proposal-people-list">{availableFriends.map((friend: Friend) => <label className="check-control" key={friend.id}><input type="checkbox" checked={selectedFriendIds.includes(friend.id)} onChange={() => toggleFriend(friend.id)} /><span>{friend.id === "me" ? `Me (${auth.currentUser?.displayName || friend.name})` : friend.name}</span></label>)}</div>
+          {!availableFriends.length && <Notice message="All available linked people are already in this folder." />}
+          <div className="dialog-actions"><span /><Button variant="secondary" onClick={() => setProposing(false)}>Cancel</Button><Button disabled={busy || !selectedFriendIds.length} onClick={submitPeopleRequest}>Send for Approval</Button></div>
+        </div>
+      </Dialog>
       <Dialog
         open={!!editing}
         title={
