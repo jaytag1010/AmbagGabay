@@ -46,6 +46,7 @@ export default function FolderDetailPage() {
       expenseId: string;
     } | null>(null),
     [personId, setPersonId] = useState<string | null>(null),
+    [friendBreakdown, setFriendBreakdown] = useState<{ friendId: string; contributionId: string } | null>(null),
     [showAll, setShowAll] = useState(false),
     [deleting, setDeleting] = useState(false),
     [sharing, setSharing] = useState(false),
@@ -548,6 +549,7 @@ export default function FolderDetailPage() {
         open={!!personId}
         title={personId ? label(personId) : "Person details"}
         onClose={() => setPersonId(null)}
+        wide
       >
         {personId &&
           (() => {
@@ -604,17 +606,38 @@ export default function FolderDetailPage() {
                 <div className="expense-groups">
                   {grouped.map(({ contribution, items, subtotal }) => (
                     <section className="expense-group" key={contribution.id}>
+                      <button type="button" className="expense-group-card" onClick={() => { setFriendBreakdown({ friendId: personId, contributionId: contribution.id }); setPersonId(null); }}>
                       <header><strong>{contribution.title}</strong><span>{formatMoney(subtotal)}</span></header>
                       <small>{formatDate(contribution.date)}</small>
                       <div className="share-list">
-                        {items.map(({ expense, share }) => <div key={expense.id}><span>{expense.title}</span><strong>{formatMoney(share)}</strong></div>)}
+                        {[...items].sort((a, b) => b.share - a.share).slice(0, 5).map(({ expense, share }) => <div key={expense.id}><span>{expense.title}</span><strong>{formatMoney(share)}</strong></div>)}
                       </div>
+                      {items.length > 5 && <span className="more-items">+ {items.length - 5} more item{items.length - 5 === 1 ? "" : "s"}</span>}
+                      </button>
                     </section>
                   ))}
                 </div>
               </div>
             );
           })()}
+      </Dialog>
+      <Dialog
+        open={!!friendBreakdown}
+        wide
+        title={contributions.items.find(item => item.id === friendBreakdown?.contributionId)?.title || "Contribution breakdown"}
+        onClose={() => { const id = friendBreakdown?.friendId || null; setFriendBreakdown(null); setPersonId(id); }}
+      >
+        {friendBreakdown && (() => {
+          const contribution = contributions.items.find(item => item.id === friendBreakdown.contributionId);
+          if (!contribution) return <Notice message="This contribution is no longer available." />;
+          const relevant = contribution.expenses.filter(expense => expense.participantIds.includes(friendBreakdown.friendId)).map(expense => ({ expense, share: fromCentavos(splitCentavos(expense.amount, expense.participantIds).get(friendBreakdown.friendId) || 0) })).sort((a, b) => b.share - a.share);
+          const friendShare = relevant.reduce((sum, item) => sum + item.share, 0);
+          return <div className="friend-breakdown">
+            <p className="muted-copy">{formatDate(contribution.date)} · Created by {contribution.createdByUserId === uid ? "You" : contribution.createdByNameSnapshot || "Unknown"}</p>
+            <div className="summary-grid"><article className="metric"><span>Contribution Total</span><strong>{formatMoney(contributionTotal(contribution))}</strong></article><article className="metric"><span>{label(friendBreakdown.friendId)} Share</span><strong>{formatMoney(friendShare)}</strong></article></div>
+            <div className="breakdown-items">{relevant.map(({ expense, share }) => <article className="breakdown-item" key={expense.id}><h3>{expense.title}</h3><div className="breakdown-metrics"><span>Full Expense<strong>{formatMoney(expense.amount)}</strong></span><span>Friend Share<strong>{formatMoney(share)}</strong></span><span>Paid by<strong>{label(effectiveExpensePayer(contribution, expense))}</strong></span><span>Shared by<strong>{expense.participantIds.length} people</strong></span></div></article>)}</div>
+          </div>;
+        })()}
       </Dialog>
     </>
   );
