@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { ArrowLeft, Pencil, RotateCcw } from "lucide-react";
 import { FriendAvatar } from "@/components/ui/FriendAvatar";
 import { Button } from "@/components/ui/Button";
@@ -19,19 +19,22 @@ import {
   unlinkFriend,
 } from "@/services/identityLinks";
 import type {
+  ContributionObligation,
   FolderFinancials,
   PublicProfile,
-  SettlementDirection,
 } from "@/types";
 import { formatDate, friendLabel } from "@/utils/format";
 import {
   calculateBalances,
+  contributionFriendPosition,
+  contributionObligations,
   effectiveExpensePayer,
   formatMoney,
   fromCentavos,
-  settlementDirections,
   splitCentavos,
 } from "@/utils/money";
+
+type ObligationRow = { folder: FolderFinancials; obligation: ContributionObligation };
 
 export default function FriendDetailsPage() {
   const { friendId } = useParams<{ friendId: string }>(),
@@ -47,6 +50,7 @@ export default function FriendDetailsPage() {
     [folders, setFolders] = useState<FolderFinancials[]>([]),
     [error, setError] = useState<string | null>(null),
     [busy, setBusy] = useState(false),
+    [breakdown, setBreakdown] = useState<ObligationRow[] | null>(null),
     [linking, setLinking] = useState(false),
     [gmail, setGmail] = useState(""),
     [found, setFound] = useState<{
@@ -90,31 +94,25 @@ export default function FriendDetailsPage() {
       ),
     [folders, friendId],
   );
-  const rows = folders.flatMap((item) =>
-    settlementDirections(item.contributions, item.settlements)
-      .filter(
-        (flow) =>
-          flow.fromFriendId === friendId || flow.toFriendId === friendId,
-      )
-      .map((flow) => ({ folder: item, flow })),
-  );
-  const owes = rows.filter((row) => row.flow.fromFriendId === friendId),
-    receives = rows.filter((row) => row.flow.toFriendId === friendId);
+  const rows: ObligationRow[] = folders.flatMap(item => contributionObligations(item.contributions, item.settlements).filter(flow => flow.fromFriendId === friendId || flow.toFriendId === friendId).map(obligation => ({ folder: item, obligation })));
+  const owes = rows.filter(row => row.obligation.fromFriendId === friendId),
+    receives = rows.filter(row => row.obligation.toFriendId === friendId);
   const name = (id: string) =>
     friends.items.find((item) => item.id === id)?.name || "Unknown";
-  const previous = (folder: FolderFinancials, flow: SettlementDirection) =>
+  const previous = (folder: FolderFinancials, flow: ContributionObligation) =>
     folder.settlements.find(
       (item) =>
         item.fromFriendId === flow.fromFriendId &&
-        item.toFriendId === flow.toFriendId,
+        item.toFriendId === flow.toFriendId && item.contributionId === flow.contributionId,
     )?.amount || 0;
   async function settle(
-    row: (typeof rows)[number],
+    row: ObligationRow,
     source: "individual" | "all",
   ) {
-    const { flow, folder } = row;
+    const { obligation: flow, folder } = row;
     await recordSettlement(uid, {
       folderId: folder.folder.id,
+      contributionId: flow.contributionId,
       fromFriendId: flow.fromFriendId,
       toFriendId: flow.toFriendId,
       amount: flow.amount,
@@ -123,11 +121,11 @@ export default function FriendDetailsPage() {
       description: `${name(flow.fromFriendId)} paid ${name(flow.toFriendId)} ${formatMoney(flow.amount)} · ${folder.folder.name}`,
     });
   }
-  async function settleRows(values: typeof rows, kind: string) {
+  async function settleRows(values: ObligationRow[], kind: string) {
     if (
       !values.length ||
       !confirm(
-        `${kind} ${values.length} payment${values.length === 1 ? "" : "s"} totaling ${formatMoney(values.reduce((s, v) => s + v.flow.amount, 0))}?`,
+        `${kind}?\n\nThis will settle:\n${values.map(v => `${v.obligation.contributionTitle} — ${formatMoney(v.obligation.amount)}`).join("\n")}\n\nTotal: ${formatMoney(values.reduce((s, v) => s + v.obligation.amount, 0))}`,
       )
     )
       return;
@@ -144,8 +142,8 @@ export default function FriendDetailsPage() {
       setBusy(false);
     }
   }
-  async function settleOne(row: (typeof rows)[number]) {
-    if (!confirm(`Record ${formatMoney(row.flow.amount)} as settled?`)) return;
+  async function settleOne(row: ObligationRow) {
+    if (!confirm(`Mark ${formatMoney(row.obligation.amount)} for ${row.obligation.contributionTitle} as settled?`)) return;
     setBusy(true);
     try {
       await settle(row, "individual");
@@ -259,8 +257,11 @@ export default function FriendDetailsPage() {
         all="Mark All Paid"
         disabled={busy}
         name={name}
+        subjectId={friendId}
         onOne={settleOne}
+        onMany={(values) => settleRows(values, "Mark these contributions settled")}
         onAll={() => settleRows(owes, "Mark all paid")}
+        onInspect={setBreakdown}
       />
       <DebtSection
         title="To Receive"
@@ -269,8 +270,11 @@ export default function FriendDetailsPage() {
         all="Mark All Received"
         disabled={busy}
         name={name}
+        subjectId={friendId}
         onOne={settleOne}
+        onMany={(values) => settleRows(values, "Mark these contributions settled")}
         onAll={() => settleRows(receives, "Mark all received")}
+        onInspect={setBreakdown}
       />
       <h2 className="section-title">Folders</h2>
       <div className="folder-breakdown">
@@ -441,6 +445,14 @@ export default function FriendDetailsPage() {
           )}
         </div>
       </Dialog>
+      <Dialog open={!!breakdown} wide title="Obligation breakdown" onClose={() => setBreakdown(null)}>
+        {breakdown && (() => {
+          const unique = [...new Map(breakdown.map(row => [`${row.folder.folder.id}-${row.obligation.contributionId}`, row])).values()];
+          const gross = breakdown.reduce((sum, row) => sum + row.obligation.grossAmount, 0), applied = breakdown.reduce((sum, row) => sum + row.obligation.settledAmount, 0), outstanding = breakdown.reduce((sum, row) => sum + row.obligation.amount, 0);
+          const positions = unique.map(row => ({ row, contribution: row.folder.contributions.find(item => item.id === row.obligation.contributionId)! })).filter(item => item.contribution).map(item => ({ ...item, position: contributionFriendPosition(item.contribution, friendId) }));
+          return <div className="obligation-breakdown"><div className="summary-grid"><article className="metric"><span>Current Outstanding</span><strong>{formatMoney(outstanding)}</strong></article><article className="metric"><span>Applied Settlements</span><strong>{formatMoney(applied)}</strong></article></div><div className="breakdown-contributions">{positions.map(({ row, contribution, position }) => <article className="breakdown-contribution" key={`${row.folder.folder.id}-${contribution.id}`}><header><div><h3>{contribution.title}</h3><p>{formatDate(contribution.date)} · {row.folder.folder.name}</p></div><strong>{name(row.obligation.fromFriendId)} → {name(row.obligation.toFriendId)}</strong></header><div className="calculation-lines"><span>Personal Share<strong>+{formatMoney(position.share)}</strong></span><span>Amount Paid<strong>−{formatMoney(position.paid)}</strong></span><span>Net Effect<strong className={position.netEffect >= 0 ? "negative" : "positive"}>{position.netEffect >= 0 ? "+" : "−"}{formatMoney(Math.abs(position.netEffect))}</strong></span></div><div className="item-calculations">{contribution.expenses.filter(expense => expense.participantIds.includes(friendId) || effectiveExpensePayer(contribution, expense) === friendId).map(expense => { const share = fromCentavos(splitCentavos(expense.amount, expense.participantIds).get(friendId) || 0), paid = effectiveExpensePayer(contribution, expense) === friendId ? expense.amount : 0; return <div key={expense.id}><span>{expense.title}<small>Share {formatMoney(share)} · Paid {formatMoney(paid)}</small></span><strong>{share - paid >= 0 ? "+" : "−"}{formatMoney(Math.abs(share - paid))}</strong></div>; })}</div>{row.obligation.settledAmount > 0 && <p className="settlement-applied">Payments / settlements: −{formatMoney(row.obligation.settledAmount)}</p>}<strong className="outstanding-line">Outstanding to {name(row.obligation.toFriendId)}: {formatMoney(row.obligation.amount)}</strong></article>)}</div><footer className="reconciliation"><span>Gross pair balance<strong>{formatMoney(gross)}</strong></span><span>Settlements<strong>−{formatMoney(applied)}</strong></span><span>Current Outstanding<strong>{formatMoney(outstanding)}</strong></span></footer></div>;
+        })()}
+      </Dialog>
       <h2 className="section-title">Settlement History</h2>
       {!settlements.filter(
         (s) => s.fromFriendId === friendId || s.toFriendId === friendId,
@@ -484,43 +496,49 @@ function DebtSection({
   all,
   disabled,
   name,
+  subjectId,
   onOne,
+  onMany,
   onAll,
+  onInspect,
 }: {
   title: string;
-  rows: Array<{ folder: FolderFinancials; flow: SettlementDirection }>;
+  rows: ObligationRow[];
   action: string;
   all: string;
   disabled: boolean;
   name: (id: string) => string;
-  onOne: (
-    row: Array<{ folder: FolderFinancials; flow: SettlementDirection }>[number],
-  ) => void;
+  subjectId: string;
+  onOne: (row: ObligationRow) => void;
+  onMany: (rows: ObligationRow[]) => void;
   onAll: () => void;
+  onInspect: (rows: ObligationRow[]) => void;
 }) {
+  const [view, setView] = useState<"contribution" | "person">("contribution");
   if (!rows.length) return null;
+  const grouped = [...rows.reduce((values, row) => { const other = row.obligation.fromFriendId === subjectId ? row.obligation.toFriendId : row.obligation.fromFriendId; const key = `${row.folder.folder.id}-${other}`; const current = values.get(key); if (current) current.push(row); else values.set(key, [row]); return values; }, new Map<string, ObligationRow[]>()).values()];
+  const activate = (event: KeyboardEvent<HTMLDivElement>, values: ObligationRow[]) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onInspect(values); } };
   return (
     <section className="panel settlement-section">
       <div className="section-heading">
         <h2>{title}</h2>
-        <Button variant="secondary" disabled={disabled} onClick={onAll}>
-          {all}
-        </Button>
+        <div className="settlement-controls"><label>View by<select value={view} onChange={event => setView(event.target.value as "contribution" | "person")}><option value="contribution">Per Contribution</option><option value="person">Per Person</option></select></label><Button variant="secondary" disabled={disabled} onClick={onAll}>{all}</Button></div>
       </div>
-      <div className="share-list">
-        {rows.map((row) => {
+      <div className="obligation-list">
+        {(view === "contribution" ? rows.map(row => [row]) : grouped).map((values) => {
+          const row = values[0], amount = values.reduce((sum, item) => sum + item.obligation.amount, 0), other = row.obligation.fromFriendId === subjectId ? row.obligation.toFriendId : row.obligation.fromFriendId;
           return (
             <div
-              key={`${row.folder.folder.id}-${row.flow.fromFriendId}-${row.flow.toFriendId}`}
+              className="obligation-row" role="button" tabIndex={0} onClick={() => onInspect(values)} onKeyDown={event => activate(event, values)}
+              key={view === "contribution" ? `${row.folder.folder.id}-${row.obligation.contributionId}-${row.obligation.fromFriendId}-${row.obligation.toFriendId}` : `${row.folder.folder.id}-${other}`}
             >
               <span>
-                <strong>{row.folder.folder.name}</strong>
-                <small>
-                  {name(row.flow.fromFriendId)} → {name(row.flow.toFriendId)}
-                </small>
+                <strong>{view === "contribution" ? row.obligation.contributionTitle : name(other)}</strong>
+                <small>{view === "contribution" ? `${formatDate(row.obligation.contributionDate)} · ${row.folder.folder.name}` : `${row.folder.folder.name} · From ${values.length} contribution${values.length === 1 ? "" : "s"}`}</small>
+                <small>{name(row.obligation.fromFriendId)} → {name(row.obligation.toFriendId)}</small>
               </span>
-              <strong>{formatMoney(row.flow.amount)}</strong>
-              <Button disabled={disabled} onClick={() => onOne(row)}>
+              <strong>{formatMoney(amount)}</strong>
+              <Button disabled={disabled} onClick={(event) => { event.stopPropagation(); if (view === "contribution") onOne(row); else onMany(values); }}>
                 {action}
               </Button>
             </div>

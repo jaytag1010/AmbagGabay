@@ -132,6 +132,13 @@ export interface SettlementDirection {
   toFriendId: string;
   amount: number;
 }
+export interface ContributionObligation extends SettlementDirection {
+  contributionId: string;
+  contributionTitle: string;
+  contributionDate: Timestamp;
+  grossAmount: number;
+  settledAmount: number;
+}
 export interface FolderFinancials {
   folder: Folder;
   contributions: ContributionWithExpenses[];
@@ -140,6 +147,7 @@ export interface FolderFinancials {
 export interface Settlement {
   id: string;
   folderId: string;
+  contributionId?: string | null;
   fromFriendId: string;
   toFriendId: string;
   amount: number;

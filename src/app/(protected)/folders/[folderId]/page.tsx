@@ -253,28 +253,14 @@ export default function FolderDetailPage() {
               description="Expense items will appear here after you add a contribution."
             />
           ) : (
-            <div className="list">
-              {expenses.map(({ contribution, expense }) => (
-                <button
-                  className="data-row"
-                  key={expense.id}
-                  onClick={() =>
-                    setExpenseDetail({ contribution, expenseId: expense.id })
-                  }
-                >
-                  <div>
-                    <small>
-                      {formatDate(contribution.date)} · {contribution.title}
-                    </small>
-                    <h2>{expense.title}</h2>
-                    <p>
-                      Paid by{" "}
-                      {label(effectiveExpensePayer(contribution, expense))} ·{" "}
-                      {expense.participantIds.length} people
-                    </p>
+            <div className="contribution-expense-groups">
+              {contributions.items.map((contribution) => (
+                <article className="contribution-expense-group" key={contribution.id}>
+                  <header><div><h2 className="contribution-title">{contribution.title}</h2><p>{formatDate(contribution.date)}{contribution.createdByUserId ? ` · Created by ${contribution.createdByUserId === uid ? "You" : contribution.createdByNameSnapshot || "Unknown"}` : ""}</p></div><strong>{formatMoney(contributionTotal(contribution))} total · {contribution.expenses.length} item{contribution.expenses.length === 1 ? "" : "s"}</strong></header>
+                  <div className="grouped-expense-list">
+                    {contribution.expenses.map(expense => <button className="grouped-expense-row" key={expense.id} onClick={() => setExpenseDetail({ contribution, expenseId: expense.id })}><span><strong>{expense.title}</strong><small>Paid by {label(effectiveExpensePayer(contribution, expense))} · {expense.participantIds.length} people</small></span><strong>{formatMoney(expense.amount)}</strong></button>)}
                   </div>
-                  <strong>{formatMoney(expense.amount)}</strong>
-                </button>
+                </article>
               ))}
             </div>
           ))}
