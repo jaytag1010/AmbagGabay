@@ -24,8 +24,8 @@ import type {
   SharedFolder,
   SharedPerson,
 } from "@/types";
-import { findAccount } from "@/services/identityLinks";
 import { logActivity } from "@/services/activities";
+import { getPairNetBalance } from "@/utils/money";
 const sharedId = (uid: string, folderId: string) => `${uid}_${folderId}`;
 export async function promotePrivateFolder(
   uid: string,
@@ -93,14 +93,15 @@ export async function promotePrivateFolder(
 }
 export async function inviteToFolder(
   uid: string,
-  folder: Folder,
+  folder: Folder | SharedFolder,
   ownerName: string,
-  gmail: string,
+  friend: Friend,
   role: "editor" | "viewer",
 ) {
-  const { email, profile } = await findAccount(gmail);
-  if (profile.uid === uid) throw new Error("You already own this folder.");
-  const folderId = await promotePrivateFolder(uid, folder, ownerName),
+  if (!friend.linkedUserId) throw new Error("Select a Friend with an accepted AmbagGabay account link.");
+  if (friend.linkedUserId === uid) throw new Error("You already own this folder.");
+  const profile = { uid: friend.linkedUserId, displayName: friend.linkedDisplayName || friend.name };
+  const folderId = "ownerId" in folder ? folder.id : await promotePrivateFolder(uid, folder, ownerName),
     db = requireDb(),
     member = await getDoc(
       doc(db, "sharedFolders", folderId, "members", profile.uid),
@@ -112,6 +113,7 @@ export async function inviteToFolder(
     "folderInvitations",
     `${folderId}_${profile.uid}`,
   );
+  const notificationRef=doc(collection(db,"users",profile.uid,"notifications"));
   await runTransaction(db, async (tx) => {
     const existing = await tx.get(invitationRef);
     if (existing.exists() && existing.data().status === "pending")
@@ -122,13 +124,14 @@ export async function inviteToFolder(
       ownerId: uid,
       ownerNameSnapshot: ownerName,
       recipientUid: profile.uid,
-      recipientEmail: email,
+      recipientEmail: friend.linkedEmail || "",
       recipientNameSnapshot: profile.displayName,
       role,
       status: "pending",
       createdAt: serverTimestamp(),
       respondedAt: null,
     });
+    tx.set(notificationRef,{type:"folder-invitation",title:"Folder Invitation",message:`${ownerName} invited you to ${folder.name} as ${role}.`,actorUid:uid,recipientUid:profile.uid,recipientNameSnapshot:profile.displayName,folderInvitationId:invitationRef.id,read:false,createdAt:serverTimestamp()});
   });
   await logActivity(uid, {
     action: "Folder invitation sent",
@@ -138,6 +141,7 @@ export async function inviteToFolder(
   });
   return { folderId, profile };
 }
+export function subscribeInvitation(id:string,next:(value:FolderInvitation|null)=>void,onError:(error:Error)=>void){return onSnapshot(doc(requireDb(),"folderInvitations",id),snapshot=>next(snapshot.exists()?({id:snapshot.id,...snapshot.data()}) as FolderInvitation:null),onError)}
 export function subscribeInvitations(
   uid: string,
   next: (items: FolderInvitation[]) => void,
@@ -195,6 +199,7 @@ export async function respondInvitation(
       status: accept ? "accepted" : "declined",
       respondedAt: serverTimestamp(),
     });
+    tx.set(doc(collection(db,"users",invitation.ownerId,"notifications")),{type:accept?"folder-invitation-accepted":"folder-invitation-declined",title:accept?"Folder Invitation Accepted":"Folder Invitation Declined",message:accept?`${displayName} accepted your invitation to ${invitation.folderNameSnapshot} as ${invitation.role}.`:`${displayName} declined your invitation to ${invitation.folderNameSnapshot}.`,actorUid:uid,recipientUid:invitation.ownerId,folderInvitationId:invitation.id,read:false,createdAt:serverTimestamp()});
   });
   await logActivity(uid, {
     action: accept
@@ -457,10 +462,13 @@ export async function cancelInvitation(
   uid: string,
   invitation: FolderInvitation,
 ) {
-  await updateDoc(doc(requireDb(), "folderInvitations", invitation.id), {
+  const db=requireDb(),batch=writeBatch(db);
+  batch.update(doc(db, "folderInvitations", invitation.id), {
     status: "cancelled",
     respondedAt: serverTimestamp(),
   });
+  batch.set(doc(collection(db,"users",invitation.recipientUid,"notifications")),{type:"folder-invitation-cancelled",title:"Folder Invitation Cancelled",message:`${invitation.ownerNameSnapshot} cancelled the invitation to ${invitation.folderNameSnapshot}.`,actorUid:uid,recipientUid:invitation.recipientUid,folderInvitationId:invitation.id,read:false,createdAt:serverTimestamp()});
+  await batch.commit();
   await logActivity(uid, {
     action: "Invitation cancelled",
     description: `${invitation.recipientNameSnapshot} · ${invitation.folderNameSnapshot}`,
@@ -538,6 +546,18 @@ export async function removeMember(
     entityType: "folder",
     entityId: folder.id,
   });
+}
+export async function getSharedMemberBalance(folderId:string,userId:string){
+  const db=requireDb(),people=await getDocs(collection(db,"sharedFolders",folderId,"people")),person=people.docs.find(item=>item.data().linkedUserId===userId),owner=people.docs.find(item=>item.id==="me");
+  if(!person||!owner)return 0;
+  const contributions=await new Promise<ContributionWithExpenses[]>((resolve,reject)=>{let unsubscribe=()=>{};unsubscribe=subscribeSharedContributions(folderId,items=>{unsubscribe();resolve(items)},reject)}),settlementDocs=await getDocs(collection(db,"sharedFolders",folderId,"settlements")),settlements=settlementDocs.docs.map(item=>({id:item.id,...item.data()})) as import("@/types").Settlement[];
+  return getPairNetBalance(contributions,settlements,owner.id,person.id).netCentavos/100;
+}
+export async function isSharedFriendInvolved(folder:SharedFolder,friend:Friend){
+  if((folder.participantFriendIds||[]).includes(friend.id))return true;
+  const db=requireDb(),people=await getDocs(collection(db,"sharedFolders",folder.id,"people")),person=people.docs.find(item=>item.data().linkedUserId===friend.linkedUserId||item.data().friendId===friend.id);if(!person)return false;
+  const contributions=await new Promise<ContributionWithExpenses[]>((resolve,reject)=>{let unsubscribe=()=>{};unsubscribe=subscribeSharedContributions(folder.id,items=>{unsubscribe();resolve(items)},reject)}),settlements=await getDocs(collection(db,"sharedFolders",folder.id,"settlements"));
+  return contributions.some(c=>c.participantIds.includes(person.id)||c.payerFriendId===person.id||c.expenses.some(e=>e.participantIds.includes(person.id)||e.payerFriendId===person.id))||settlements.docs.some(item=>item.data().fromFriendId===person.id||item.data().toFriendId===person.id);
 }
 export async function deleteSharedFolder(folder: SharedFolder) {
   const db = requireDb(),

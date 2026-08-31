@@ -8,7 +8,7 @@ import { SettlePaymentsDialog } from "@/components/settlements/SettlePaymentsDia
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { EmptyState, LoadingState, Notice } from "@/components/ui/Feedback";
-import { Field, SelectField } from "@/components/ui/Field";
+import { SelectField } from "@/components/ui/Field";
 import { useAuth } from "@/hooks/useAuth";
 import { useCollectionData } from "@/hooks/useCollectionData";
 import {
@@ -16,6 +16,7 @@ import {
   subscribeContributions,
 } from "@/services/contributions";
 import { subscribeFriends } from "@/services/friends";
+import { subscribeFriendGroups } from "@/services/friendGroups";
 import { getFolder } from "@/services/folders";
 import { subscribeSettlements } from "@/services/settlements";
 import { inviteToFolder } from "@/services/sharing";
@@ -54,7 +55,7 @@ export default function FolderDetailPage() {
     [showAll, setShowAll] = useState(false),
     [deleting, setDeleting] = useState(false),
     [sharing, setSharing] = useState(false),
-    [shareGmail, setShareGmail] = useState(""),
+    [shareFriendId, setShareFriendId] = useState(""),
     [shareRole, setShareRole] = useState<"editor" | "viewer">("editor"),
     [sharingBusy, setSharingBusy] = useState(false),
     [settling, setSettling] = useState(false),
@@ -80,8 +81,10 @@ export default function FolderDetailPage() {
     ) => subscribeSettlements(uid, next, fail),
     [uid],
   );
+  const groupSub=useCallback((next:Parameters<typeof subscribeFriendGroups>[1],fail:Parameters<typeof subscribeFriendGroups>[2])=>subscribeFriendGroups(uid,next,fail),[uid]);
   const contributions = useCollectionData(contributionSub),
     friends = useCollectionData(friendSub),
+    groups=useCollectionData(groupSub),
     allSettlements = useCollectionData(settlementSub),
     settlements = allSettlements.items.filter(
       (item) => item.folderId === folderId,
@@ -128,6 +131,7 @@ export default function FolderDetailPage() {
   const total = folderTotal(contributions.items),
     me = balances.find((item) => item.friendId === "me");
   const activeRelationships = getActivePairRelationships(contributions.items, settlements);
+  const linkedFriends=friends.items.filter(item=>!item.archived&&!item.isMe&&!!item.linkedUserId);
   const pairWithMe = (id:string) => getPairNetBalance(contributions.items, settlements, "me", id);
   const meIncoming = activeRelationships.filter(item=>item.toFriendId==="me"), meOutgoing=activeRelationships.filter(item=>item.fromFriendId==="me");
   async function remove() {
@@ -358,12 +362,7 @@ export default function FolderDetailPage() {
         title="Share Folder"
         onClose={() => setSharing(false)}
       >
-        <Field
-          label="Gmail address"
-          type="email"
-          value={shareGmail}
-          onChange={(event) => setShareGmail(event.target.value)}
-        />
+        {linkedFriends.length ? <SelectField label="Friend" value={shareFriendId} onChange={event=>setShareFriendId(event.target.value)}><option value="">Select linked Friend</option>{linkedFriends.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</SelectField> : <div><p><strong>No linked Friends available.</strong></p><p className="muted-copy">Link a Friend to an AmbagGabay account first before sharing this Folder.</p><Link className="text-link" href="/friends">Go to Friends</Link></div>}
         <SelectField
           label="Role"
           value={shareRole}
@@ -388,16 +387,19 @@ export default function FolderDetailPage() {
             </Link>
           )}
           <Button
-            disabled={sharingBusy}
+            disabled={sharingBusy||!shareFriendId}
             onClick={async () => {
               if (!folder) return;
               setSharingBusy(true);
               try {
+                const selected=friends.items.find(item=>item.id===shareFriendId);if(!selected)return;
+                const involved=(folder.participantFriendIds||[]).includes(selected.id)||groups.items.find(group=>group.id===folder.defaultFriendGroupId)?.friendIds.includes(selected.id)||contributions.items.some(c=>c.participantIds.includes(selected.id)||c.payerFriendId===selected.id||c.expenses.some(e=>e.participantIds.includes(selected.id)||effectiveExpensePayer(c,e)===selected.id))||settlements.some(s=>s.fromFriendId===selected.id||s.toFriendId===selected.id);
+                if(!involved&&!confirm(`This person is not currently involved in this Folder.\n\n${selected.name} is not part of the Folder's selected people and does not appear in any current Contribution or Expense.\n\nSharing will give them access to this Folder.\n\nProceed?`))return;
                 const result = await inviteToFolder(
                   uid,
                   folder,
                   auth.currentUser!.displayName || "User",
-                  shareGmail,
+                  selected,
                   shareRole,
                 );
                 setSharedFolderId(result.folderId);

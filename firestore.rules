@@ -16,7 +16,7 @@ service cloud.firestore {
       allow delete: if false;
       match /friends/{friendId} {
         allow read: if isOwner(uid);
-        allow create: if isOwner(uid) && (!request.resource.data.keys().hasAny(['linkedUserId']) || request.resource.data.linkedUserId == null) && (friendId != 'me' || (request.resource.data.isMe == true && request.resource.data.archived == false));
+        allow create: if isOwner(uid) && (friendId != 'me' || (request.resource.data.isMe == true && request.resource.data.archived == false)) && ((!request.resource.data.keys().hasAny(['linkedUserId']) || request.resource.data.linkedUserId == null) || (request.resource.data.linkedByRequestId is string && get(/databases/$(database)/documents/accountLinkRequests/$(request.resource.data.linkedByRequestId)).data.status == 'accepted' && get(/databases/$(database)/documents/accountLinkRequests/$(request.resource.data.linkedByRequestId)).data.targetUid == uid && get(/databases/$(database)/documents/accountLinkRequests/$(request.resource.data.linkedByRequestId)).data.requesterUid == request.resource.data.linkedUserId));
         allow update: if (isOwner(uid)
           && !(friendId == 'me' && (request.resource.data.isMe != true || request.resource.data.archived != false))
           && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['linkedUserId','linkedEmail','linkedDisplayName','linkedByRequestId']) || request.resource.data.linkedUserId == null))
@@ -39,12 +39,12 @@ service cloud.firestore {
       }
       match /friendLinks/{linkedUid} {
         allow read: if isOwner(uid);
-        allow create: if signedIn() && request.auth.uid == linkedUid
+        allow create: if signedIn() && ((request.auth.uid == linkedUid
           && request.resource.data.accountLinkRequestId is string
           && getAfter(/databases/$(database)/documents/accountLinkRequests/$(request.resource.data.accountLinkRequestId)).data.status == 'accepted'
           && getAfter(/databases/$(database)/documents/accountLinkRequests/$(request.resource.data.accountLinkRequestId)).data.requesterUid == uid
           && getAfter(/databases/$(database)/documents/accountLinkRequests/$(request.resource.data.accountLinkRequestId)).data.requesterFriendId == request.resource.data.friendId
-          && getAfter(/databases/$(database)/documents/accountLinkRequests/$(request.resource.data.accountLinkRequestId)).data.targetUid == linkedUid;
+          && getAfter(/databases/$(database)/documents/accountLinkRequests/$(request.resource.data.accountLinkRequestId)).data.targetUid == linkedUid) || (isOwner(uid) && getAfter(/databases/$(database)/documents/accountLinkRequests/$(request.resource.data.accountLinkRequestId)).data.status == 'accepted' && getAfter(/databases/$(database)/documents/accountLinkRequests/$(request.resource.data.accountLinkRequestId)).data.targetUid == uid && getAfter(/databases/$(database)/documents/accountLinkRequests/$(request.resource.data.accountLinkRequestId)).data.requesterUid == linkedUid));
         allow update: if false;
         allow delete: if isOwner(uid);
       }

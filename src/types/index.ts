@@ -257,13 +257,19 @@ export interface AppNotification {
     | "account-link-request"
     | "account-link-accepted"
     | "account-link-declined"
-    | "account-link-cancelled";
+    | "account-link-cancelled"
+    | "folder-invitation"
+    | "folder-invitation-accepted"
+    | "folder-invitation-declined"
+    | "folder-invitation-cancelled";
   title: string;
   message: string;
   actorUid: string;
   recipientUid: string;
+  recipientNameSnapshot?: string | null;
   settlementRequestId?: string | null;
   accountLinkRequestId?: string | null;
+  folderInvitationId?: string | null;
   read: boolean;
   createdAt: Timestamp;
 }

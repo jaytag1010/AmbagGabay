@@ -238,6 +238,14 @@ export async function respondAccountLinkRequest(
   });
 }
 
+export async function addReciprocalFriend(uid:string,request:AccountLinkRequest){
+  if(request.targetUid!==uid||request.status!=="accepted")throw new Error("This accepted account link is not available.");
+  const db=requireDb(),lockRef=doc(db,"users",uid,"friendLinks",request.requesterUid),friendRef=doc(collection(db,"users",uid,"friends"));
+  await runTransaction(db,async tx=>{const [lock,current]=await Promise.all([tx.get(lockRef),tx.get(doc(db,"accountLinkRequests",request.id))]);if(lock.exists())throw new Error(`${request.requesterNameSnapshot} is already in your Friends.`);if(!current.exists()||current.data().status!=="accepted"||current.data().targetUid!==uid)throw new Error("This accepted account link is no longer available.");const now=serverTimestamp();tx.set(friendRef,{name:request.requesterNameSnapshot,isMe:false,archived:false,photoURL:null,photoStoragePath:null,linkedUserId:request.requesterUid,linkedDisplayName:request.requesterNameSnapshot,linkedEmail:null,linkedByRequestId:request.id,createdAt:now,updatedAt:now});tx.set(lockRef,{friendId:friendRef.id,friendName:request.requesterNameSnapshot,accountLinkRequestId:request.id,createdAt:now});});
+  await logActivity(uid,{action:"Friend added",description:`Added ${request.requesterNameSnapshot} after account link acceptance.`,entityType:"friend",entityId:friendRef.id});
+  return friendRef.id;
+}
+
 export async function cancelAccountLinkRequest(
   uid: string,
   request: AccountLinkRequest,

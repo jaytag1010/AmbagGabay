@@ -10,15 +10,18 @@ import { useAuth } from "@/hooks/useAuth";
 import { useCollectionData } from "@/hooks/useCollectionData";
 import {
   cancelPaymentRequest,
+  markAllNotificationsRead,
   markNotificationRead,
   respondPaymentRequest,
   subscribeNotifications,
   subscribeSettlementRequest,
 } from "@/services/notifications";
 import {
+  addReciprocalFriend,
   respondAccountLinkRequest,
   subscribeAccountLinkRequest,
 } from "@/services/identityLinks";
+import { respondInvitation, subscribeInvitation } from "@/services/sharing";
 import type {
   AccountLinkRequest,
   AppNotification,
@@ -117,7 +120,8 @@ function AccountLinkActions({
     [reviewing, setReviewing] = useState(false),
     [reason, setReason] = useState(""),
     [error, setError] = useState<string | null>(null),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [accepted, setAccepted] = useState(false);
   useEffect(
     () =>
       notification.accountLinkRequestId
@@ -135,7 +139,7 @@ function AccountLinkActions({
     setError(null);
     try {
       await respondAccountLinkRequest(uid, request, accept, reason);
-      setReviewing(false);
+      if(accept)setAccepted(true);else setReviewing(false);
     } catch (e) {
       setError(
         e instanceof Error ? e.message : "Unable to respond to link request.",
@@ -146,7 +150,7 @@ function AccountLinkActions({
   }
   if (error) return <Notice message={error} />;
   if (!request) return null;
-  if (request.status !== "pending")
+  if (request.status !== "pending" && !accepted)
     return (
       <span className={`request-status ${request.status}`}>
         {request.status}
@@ -163,6 +167,7 @@ function AccountLinkActions({
         title="Review Account Link Request"
         onClose={() => setReviewing(false)}
       >
+        {accepted ? <div className="link-review"><p><strong>Account Linked</strong></p><p>Your AmbagGabay account is now linked to “{request.requesterFriendNameSnapshot}” in {request.requesterNameSnapshot}&apos;s account.</p><p>Would you like to add {request.requesterNameSnapshot} as a Friend too?</p><div className="dialog-actions"><Button variant="secondary" onClick={()=>setReviewing(false)}>Not Now</Button><span/><Button disabled={busy} onClick={async()=>{setBusy(true);setError(null);try{await addReciprocalFriend(uid,{...request,status:"accepted"});setReviewing(false)}catch(e){setError(e instanceof Error?e.message:"Unable to add Friend.")}finally{setBusy(false)}}}>Add Friend</Button></div></div> :
         <div className="link-review">
           <p>
             <strong>{request.requesterNameSnapshot}</strong> wants to associate
@@ -216,10 +221,18 @@ function AccountLinkActions({
               Accept Link
             </Button>
           </div>
-        </div>
+        </div>}
       </Dialog>
     </>
   );
+}
+
+function FolderInvitationActions({notification,uid}:{notification:AppNotification;uid:string}){
+ const [invitation,setInvitation]=useState<import("@/types").FolderInvitation|null>(null),[reviewing,setReviewing]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState<string|null>(null);
+ useEffect(()=>notification.folderInvitationId?subscribeInvitation(notification.folderInvitationId,setInvitation,e=>setError(e.message)):undefined,[notification.folderInvitationId]);
+ if(error)return <Notice message={error}/>; if(!invitation)return null; if(invitation.status!=="pending")return <span className={`request-status ${invitation.status}`}>{invitation.status}</span>; if(invitation.recipientUid!==uid)return null;
+ const respond=async(accept:boolean)=>{setBusy(true);setError(null);try{await respondInvitation(uid,invitation,accept,notification.recipientNameSnapshot||"User");setReviewing(false)}catch(e){setError(e instanceof Error?e.message:"Unable to respond.")}finally{setBusy(false)}};
+ return <><Button variant="secondary" onClick={()=>setReviewing(true)}>Review</Button><Dialog open={reviewing} title="Folder Invitation" onClose={()=>setReviewing(false)}><div className="link-review"><h3>{invitation.folderNameSnapshot}</h3><p>Shared by<br/><strong>{invitation.ownerNameSnapshot}</strong></p><p>Your role<br/><strong>{invitation.role}</strong></p><p className="muted-copy">If you accept, this Folder will appear on Home under Shared With Me.</p><Notice message={error}/><div className="dialog-actions"><Button disabled={busy} variant="secondary" onClick={()=>respond(false)}>Decline</Button><span/><Button disabled={busy} onClick={()=>respond(true)}>Accept</Button></div></div></Dialog></>;
 }
 
 function RequestActions({
@@ -231,6 +244,8 @@ function RequestActions({
 }) {
   if (notification.accountLinkRequestId)
     return <AccountLinkActions notification={notification} uid={uid} />;
+  if (notification.folderInvitationId)
+    return <FolderInvitationActions notification={notification} uid={uid} />;
   if (notification.settlementRequestId)
     return <PaymentRequestActions notification={notification} uid={uid} />;
   return null;
@@ -239,7 +254,7 @@ function RequestActions({
 export default function NotificationsPage() {
   const { currentUser } = useAuth(),
     uid = currentUser?.uid || "",
-    [tab, setTab] = useState<"all" | "unread">("all");
+    [tab, setTab] = useState<"all" | "unread">("all"),[marking,setMarking]=useState(false);
   const subscription = useCallback(
     (next: (items: AppNotification[]) => void, fail: (error: Error) => void) =>
       subscribeNotifications(uid, next, fail),
@@ -254,7 +269,7 @@ export default function NotificationsPage() {
         title="Notifications"
         subtitle="Account-link requests, payment confirmations, and settlement updates."
       />
-      <div className="tabs notification-tabs">
+      <div className="notification-toolbar"><div className="tabs notification-tabs">
         <button
           className={tab === "all" ? "active" : ""}
           onClick={() => setTab("all")}
@@ -267,7 +282,7 @@ export default function NotificationsPage() {
         >
           Unread ({data.items.filter((i) => !i.read).length})
         </button>
-      </div>
+      </div><Button variant="secondary" disabled={marking||!data.items.some(i=>!i.read)} onClick={async()=>{setMarking(true);try{await markAllNotificationsRead(uid,data.items)}finally{setMarking(false)}}}>{marking?"Marking…":"Mark All as Read"}</Button></div>
       {data.loading ? <LoadingState /> : <Notice message={data.error} />}{" "}
       {!data.loading && !items.length && (
         <EmptyState

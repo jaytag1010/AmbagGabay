@@ -19,6 +19,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useCollectionData } from "@/hooks/useCollectionData";
 import { getFinancialOverview } from "@/services/financials";
 import { setFriendArchived, subscribeFriends } from "@/services/friends";
+import { subscribeFriendGroups } from "@/services/friendGroups";
 import { recordSettlement } from "@/services/settlements";
 import { notifyReceived, requestPayment } from "@/services/notifications";
 import {
@@ -77,6 +78,8 @@ export default function FriendDetailsPage() {
       email: string;
       profile: PublicProfile;
     } | null>(null);
+  const groupSub=useCallback((next:Parameters<typeof subscribeFriendGroups>[1],fail:Parameters<typeof subscribeFriendGroups>[2])=>subscribeFriendGroups(uid,next,fail),[uid]);
+  const groups=useCollectionData(groupSub);
   const refresh = useCallback(
     () =>
       getFinancialOverview(uid)
@@ -102,14 +105,18 @@ export default function FriendDetailsPage() {
     setSearching(false);
   }
   const person = friends.items.find((item) => item.id === friendId),
-    contributions = folders.flatMap((item) => item.contributions),
-    settlements = folders.flatMap((item) => item.settlements);
+    involvedFolders=folders.filter(item=>{
+      const defaultGroup=groups.items.find(group=>group.id===item.folder.defaultFriendGroupId);
+      return (item.folder.participantFriendIds||[]).includes(friendId)||!!defaultGroup?.friendIds.includes(friendId)||item.contributions.some(c=>c.participantIds.includes(friendId)||c.payerFriendId===friendId||c.expenses.some(e=>e.participantIds.includes(friendId)||effectiveExpensePayer(c,e)===friendId))||item.settlements.some(s=>s.fromFriendId===friendId||s.toFriendId===friendId);
+    }),
+    contributions = involvedFolders.flatMap((item) => item.contributions),
+    settlements = involvedFolders.flatMap((item) => item.settlements);
   const summary = calculateBalances(contributions, settlements).find(
     (item) => item.friendId === friendId,
   );
   const totalInvolved = useMemo(
     () =>
-      folders.reduce(
+      involvedFolders.reduce(
         (sum, item) =>
           sum +
           item.contributions.reduce(
@@ -126,9 +133,9 @@ export default function FriendDetailsPage() {
           ),
         0,
       ),
-    [folders, friendId],
+    [involvedFolders, friendId],
   );
-  const rows: ObligationRow[] = folders.flatMap((item) =>
+  const rows: ObligationRow[] = involvedFolders.flatMap((item) =>
     contributionObligations(item.contributions, item.settlements)
       .filter(
         (flow) =>
@@ -392,7 +399,7 @@ export default function FriendDetailsPage() {
       />
       <h2 className="section-title">Folders</h2>
       <div className="folder-breakdown">
-        {folders.map((item) => {
+        {involvedFolders.map((item) => {
           const folderPair = fromCentavos(
             getPairNetBalance(
               item.contributions,
@@ -437,7 +444,7 @@ export default function FriendDetailsPage() {
         />
       ) : (
         <div className="list">
-          {folders
+          {involvedFolders
             .flatMap(({ folder, contributions: items }) =>
               items.map((contribution) => ({ folder, contribution })),
             )

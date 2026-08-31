@@ -4,6 +4,7 @@ import type { AppNotification, SettlementAllocation, SettlementRequest } from "@
 
 export function subscribeNotifications(uid:string,next:(items:AppNotification[])=>void,fail:(error:Error)=>void){return onSnapshot(query(collection(requireDb(),"users",uid,"notifications"),orderBy("createdAt","desc")),snapshot=>next(snapshot.docs.map(item=>({id:item.id,...item.data()}) as AppNotification)),fail)}
 export async function markNotificationRead(uid:string,id:string){await updateDoc(doc(requireDb(),"users",uid,"notifications",id),{read:true})}
+export async function markAllNotificationsRead(uid:string,items:AppNotification[]){const unread=items.filter(item=>!item.read);if(!unread.length)return;const db=requireDb(),batch=writeBatch(db);unread.forEach(item=>batch.update(doc(db,"users",uid,"notifications",item.id),{read:true}));await batch.commit()}
 export async function requestPayment(input:{requesterUid:string;approverUid:string;requesterName:string;approverName:string;allocations:SettlementAllocation[]}){
  const db=requireDb(), signature=input.allocations.map(a=>`${a.folderId}_${a.contributionId}_${a.fromFriendId}_${a.toFriendId}`).sort().join("__"), ref=doc(db,"settlementRequests",`${input.requesterUid}_${input.approverUid}_${signature}`), amount=Math.abs(input.allocations.reduce((sum,item)=>sum+(item.fromFriendId==="me"?item.amount:-item.amount),0)), batch=writeBatch(db), existing=await getDoc(ref);
  if(existing.exists()&&existing.data().status==="pending") throw new Error("A confirmation request for these contributions is already pending.");
