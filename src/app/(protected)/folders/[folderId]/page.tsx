@@ -366,13 +366,11 @@ export default function FolderDetailPage() {
       >
         <Notice message={shareError} />
         {shareSuccess && <p className="positive"><strong>{shareSuccess}</strong></p>}
-        {linkedFriends.length ? <SelectField label="Friend" value={shareFriendId} onChange={event=>setShareFriendId(event.target.value)}><option value="">Select linked Friend</option>{linkedFriends.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</SelectField> : <div><p><strong>No linked Friends available.</strong></p><p className="muted-copy">Link a Friend to an AmbagGabay account first before sharing this Folder.</p><Link className="text-link" href="/friends">Go to Friends</Link></div>}
+        {linkedFriends.length ? <SelectField label="Friend" value={shareFriendId} onChange={event=>{setShareFriendId(event.target.value);setShareError(null);setShareSuccess(null)}}><option value="">Select linked Friend</option>{linkedFriends.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</SelectField> : <div><p><strong>No linked Friends available.</strong></p><p className="muted-copy">Link a Friend to an AmbagGabay account first before sharing this Folder.</p><Link className="text-link" href="/friends">Go to Friends</Link></div>}
         <SelectField
           label="Role"
           value={shareRole}
-          onChange={(event) =>
-            setShareRole(event.target.value as "editor" | "viewer")
-          }
+          onChange={(event) => {setShareRole(event.target.value as "editor" | "viewer");setShareError(null);setShareSuccess(null)}}
         >
           <option value="editor">Editor</option>
           <option value="viewer">Viewer</option>
@@ -409,7 +407,8 @@ export default function FolderDetailPage() {
                   shareRole,
                 );
                 setSharedFolderId(result.folderId);
-                setShareSuccess(result.reused?"Invitation is already pending. The recipient notification was refreshed.":"Invitation sent.");
+                setShareSuccess(result.reused?`An invitation to ${selected.name} is already pending. The notification was refreshed.`:`Invitation sent to ${selected.name}.`);
+                setShareFriendId("");
               } catch (cause) {
                 if(process.env.NODE_ENV==="development")console.error("Folder invitation failed",cause);
                 setShareError(cause instanceof Error&&!cause.message.toLowerCase().includes("permission")?cause.message:"We couldn't send the invitation. Please try again.");
@@ -418,7 +417,7 @@ export default function FolderDetailPage() {
               }
             }}
           >
-            Send Invitation
+            {sharingBusy?"Sending…":"Send Invitation"}
           </Button>
         </div>
       </Dialog>

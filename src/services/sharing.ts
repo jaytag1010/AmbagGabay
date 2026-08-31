@@ -27,6 +27,7 @@ import type {
 import { logActivity } from "@/services/activities";
 import { getPairNetBalance } from "@/utils/money";
 const sharedId = (uid: string, folderId: string) => `${uid}_${folderId}`;
+async function shareStep<T>(operation:string,path:string,action:()=>Promise<T>){try{return await action()}catch(cause){if(process.env.NODE_ENV==="development")console.error("Folder invitation failed",{operation,path,code:typeof cause==="object"&&cause&&"code" in cause?String(cause.code):"unknown",message:cause instanceof Error?cause.message:String(cause)});throw cause}}
 export async function promotePrivateFolder(
   uid: string,
   folder: Folder,
@@ -35,8 +36,9 @@ export async function promotePrivateFolder(
   const db = requireDb(),
     id = sharedId(uid, folder.id),
     target = doc(db, "sharedFolders", id),
-    existing = await getDoc(target);
-  if (existing.exists() && existing.data().migrationComplete !== false) return id;
+    ownedFolders=await shareStep("check-owned-shared-folder","sharedFolders",()=>getDocs(query(collection(db,"sharedFolders"),where("ownerId","==",uid)))),
+    existing = ownedFolders.docs.find(item=>item.id===id);
+  if (existing && existing.data().migrationComplete !== false) return id;
   const contributions = await getDocs(
     collection(db, "users", uid, "folders", folder.id, "contributions"),
   );
@@ -48,7 +50,7 @@ export async function promotePrivateFolder(
     ),
   );
   const now = serverTimestamp();
-  if (!existing.exists()) {
+  if (!existing) {
     const parentSetup = writeBatch(db);
     parentSetup.set(target, {
       ...folder,
@@ -59,7 +61,7 @@ export async function promotePrivateFolder(
       createdAt: folder.createdAt || now,
       updatedAt: now,
     });
-    await parentSetup.commit();
+    await shareStep("create-shared-folder",`sharedFolders/${id}`,()=>parentSetup.commit());
   }
   const ownerMember=doc(target,"members",uid);
   if(!(await getDoc(ownerMember)).exists()){
@@ -70,11 +72,11 @@ export async function promotePrivateFolder(
       displayNameSnapshot: ownerName,
       joinedAt: now,
     });
-    await memberSetup.commit();
+    await shareStep("create-owner-membership",`sharedFolders/${id}/members/${uid}`,()=>memberSetup.commit());
   }
   const accessSetup=writeBatch(db);
   accessSetup.set(doc(db, "users", uid, "sharedFolderMemberships", id), { userId: uid, folderId: id, role: "owner", updatedAt: now },{merge:true});
-  await accessSetup.commit();
+  await shareStep("create-owner-access",`users/${uid}/sharedFolderMemberships/${id}`,()=>accessSetup.commit());
   const batch = writeBatch(db);
   friends.forEach((friend) =>
     batch.set(doc(target, "people", friend.id), {
@@ -102,7 +104,7 @@ export async function promotePrivateFolder(
     );
   }
   batch.update(target,{migrationComplete:true,updatedAt:serverTimestamp()});
-  await batch.commit();
+  await shareStep("copy-folder-data",`sharedFolders/${id}`,()=>batch.commit());
   return id;
 }
 export async function inviteToFolder(
@@ -128,11 +130,11 @@ export async function inviteToFolder(
     `${folderId}_${profile.uid}`,
   );
   const notificationRef=doc(collection(db,"users",profile.uid,"notifications"));
-  const ownedInvitations=await getDocs(query(collection(db,"folderInvitations"),where("ownerId","==",uid))),existingInvitation=ownedInvitations.docs.find(item=>item.id===invitationRef.id);
+  const ownedInvitations=await shareStep("check-duplicate-invitation","folderInvitations",()=>getDocs(query(collection(db,"folderInvitations"),where("ownerId","==",uid)))),existingInvitation=ownedInvitations.docs.find(item=>item.id===invitationRef.id);
   if(existingInvitation?.data().status==="pending"){
     const delivery=writeBatch(db);
     delivery.set(notificationRef,{type:"folder-invitation",title:"Folder Invitation",message:`${ownerName} invited you to ${folder.name} as ${existingInvitation.data().role}.`,actorUid:uid,recipientUid:profile.uid,recipientNameSnapshot:profile.displayName,folderInvitationId:invitationRef.id,read:false,createdAt:serverTimestamp()});
-    await delivery.commit();
+    await shareStep("refresh-recipient-notification",`users/${profile.uid}/notifications`,()=>delivery.commit());
     return {folderId,profile,reused:true};
   }
   if(existingInvitation?.data().status==="accepted")throw new Error(`${profile.displayName} already accepted an invitation to this Folder.`);
@@ -151,13 +153,15 @@ export async function inviteToFolder(
       respondedAt: null,
     });
   invitationBatch.set(notificationRef,{type:"folder-invitation",title:"Folder Invitation",message:`${ownerName} invited you to ${folder.name} as ${role}.`,actorUid:uid,recipientUid:profile.uid,recipientNameSnapshot:profile.displayName,folderInvitationId:invitationRef.id,read:false,createdAt:serverTimestamp()});
-  await invitationBatch.commit();
-  await logActivity(uid, {
-    action: "Folder invitation sent",
-    description: `${profile.displayName} invited to ${folder.name} as ${role}`,
-    entityType: "folder",
-    entityId: folderId,
-  });
+  await shareStep("create-invitation-and-notification",`folderInvitations/${invitationRef.id} + users/${profile.uid}/notifications/${notificationRef.id}`,()=>invitationBatch.commit());
+  try{
+    await logActivity(uid, {
+      action: "Folder invitation sent",
+      description: `${profile.displayName} invited to ${folder.name} as ${role}`,
+      entityType: "folder",
+      entityId: folderId,
+    });
+  }catch(cause){if(process.env.NODE_ENV==="development")console.error("Folder invitation activity failed",{operation:"create-owner-activity",path:`users/${uid}/activities`,cause})}
   return { folderId, profile };
 }
 export function subscribeInvitation(id:string,next:(value:FolderInvitation|null)=>void,onError:(error:Error)=>void){return onSnapshot(doc(requireDb(),"folderInvitations",id),snapshot=>next(snapshot.exists()?({id:snapshot.id,...snapshot.data()}) as FolderInvitation:null),onError)}
