@@ -8,6 +8,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useUserProfile } from "@/components/providers/UserProfileProvider";
 import { updateAppearance } from "@/services/users";
 import type { AccentTheme, AppearanceMode } from "@/types";
+import { APP_VERSION } from "@/lib/version";
 const modes: AppearanceMode[] = ["system", "light", "dark"];
 const themes: Array<{ id: AccentTheme; name: string; swatch: string }> = [
   { id: "ambag-green", name: "Ambag Green", swatch: "#16775d" },
@@ -150,6 +151,7 @@ export default function SettingsPage() {
             AmbagGabay helps friends understand shared costs without the awkward
             guesswork.
           </p>
+          <div className="about-version"><span>Version</span><strong>{APP_VERSION}</strong></div>
         </section>
       </div>
     </>

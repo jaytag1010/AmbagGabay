@@ -28,7 +28,8 @@ const newItem = (ids: string[], payer: string): ExpenseDraft => ({
   participantIds: [...ids],
 });
 export function ContributionEditor() {
-  const auth=useAuth(),uid = auth.currentUser!.uid;
+  const auth = useAuth(),
+    uid = auth.currentUser!.uid;
   const router = useRouter();
   const params = useSearchParams();
   const initialFolder = params.get("folder") || "";
@@ -109,13 +110,21 @@ export function ContributionEditor() {
       return;
     const folder = folders.items.find((item) => item.id === folderId);
     const defaultId = folder?.defaultFriendGroupId || "";
-    if (defaultId) applyGroup(defaultId);
+    const hasParticipantSnapshot = Array.isArray(folder?.participantFriendIds);
+    const folderPeople = (folder?.participantFriendIds || []).filter((id) =>
+      active.some((friend) => friend.id === id),
+    );
+    if (hasParticipantSnapshot) {
+      setGroupId(defaultId);
+      setParticipantIds([...new Set(["me", ...folderPeople])]);
+      setPayer("me");
+    } else if (defaultId) applyGroup(defaultId);
     else if (active.some((friend) => friend.id === "me")) {
       setParticipantIds(["me"]);
       setPayer("me");
     }
-  // The initialization intentionally runs only when its collection inputs change.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // The initialization intentionally runs only when its collection inputs change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     folderId,
     folders.items,
@@ -503,7 +512,16 @@ export function ContributionEditor() {
             </div>
           )}
           {items.length > 0 && (
-            <Button type="button" variant="secondary" onClick={() => setItems((current) => [...current, newItem(participantIds, payer)])}>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() =>
+                setItems((current) => [
+                  ...current,
+                  newItem(participantIds, payer),
+                ])
+              }
+            >
               <Plus size={18} /> Add Another Item
             </Button>
           )}

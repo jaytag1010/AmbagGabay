@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState, type KeyboardEvent } from "r
 import { ArrowLeft, Pencil, RotateCcw } from "lucide-react";
 import { FriendAvatar } from "@/components/ui/FriendAvatar";
 import { Button } from "@/components/ui/Button";
+import { PaymentMethodsPanel } from "@/components/payments/PaymentMethods";
 import { Dialog } from "@/components/ui/Dialog";
 import { Field } from "@/components/ui/Field";
 import { EmptyState, LoadingState, Notice } from "@/components/ui/Feedback";
@@ -245,6 +246,7 @@ export default function FriendDetailsPage() {
           )}
         </section>
       )}
+      <PaymentMethodsPanel currentUid={uid} friend={person}/>
       <DebtSection
         title={`${person.name} Owes You`}
         rows={incoming}

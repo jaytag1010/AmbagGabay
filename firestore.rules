@@ -14,7 +14,17 @@ service cloud.firestore {
       allow create: if isOwner(uid) && request.resource.data.uid == uid;
       allow update: if isOwner(uid) && resource.data.uid == uid && request.resource.data.uid == uid;
       allow delete: if false;
-      match /friends/{friendId} { allow read: if isOwner(uid); allow create: if isOwner(uid) && (friendId != 'me' || (request.resource.data.isMe == true && request.resource.data.archived == false)); allow update: if isOwner(uid) && !(friendId == 'me' && (request.resource.data.isMe != true || request.resource.data.archived != false)); allow delete: if false; }
+      match /friends/{friendId} {
+        allow read: if isOwner(uid);
+        allow create: if isOwner(uid) && (friendId != 'me' || (request.resource.data.isMe == true && request.resource.data.archived == false));
+        allow update: if isOwner(uid) && !(friendId == 'me' && (request.resource.data.isMe != true || request.resource.data.archived != false));
+        allow delete: if false;
+        match /paymentMethods/{methodId} { allow read, write: if isOwner(uid); }
+      }
+      match /paymentMethods/{methodId} {
+        allow read: if isOwner(uid) || (signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)/friendLinks/$(uid)));
+        allow create, update, delete: if isOwner(uid);
+      }
       match /friendLinks/{linkedUid} { allow read, write: if isOwner(uid); }
       match /friendGroups/{groupId} { allow read, write: if isOwner(uid); }
       match /sharedFolderMemberships/{folderId} {

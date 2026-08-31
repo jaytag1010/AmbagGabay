@@ -32,6 +32,8 @@ export interface Friend {
   linkedUserId?: string | null;
   linkedEmail?: string | null;
 }
+export type PaymentProvider = "gcash" | "maya" | "maribank" | "landbank" | "other";
+export interface PaymentMethod { id:string; provider:PaymentProvider; customProviderName?:string|null; accountName:string; accountNumber?:string|null; qrCodeUrl?:string|null; qrCodeStoragePath?:string|null; isPreferred?:boolean; createdAt:Timestamp; updatedAt:Timestamp }
 export interface FriendGroup {
   id: string;
   name: string;
@@ -44,6 +46,7 @@ export interface Folder {
   name: string;
   icon?: string;
   defaultFriendGroupId?: string | null;
+  participantFriendIds?: string[];
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -177,5 +180,5 @@ export type CreateFriendInput = Pick<Friend, "name">;
 export type FriendGroupInput = Pick<FriendGroup, "name" | "friendIds">;
 export type FolderInput = Pick<
   Folder,
-  "name" | "icon" | "defaultFriendGroupId"
+  "name" | "icon" | "defaultFriendGroupId" | "participantFriendIds"
 >;

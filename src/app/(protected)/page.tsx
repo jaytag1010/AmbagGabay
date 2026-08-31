@@ -18,13 +18,14 @@ import {
   subscribeSharedFolders,
 } from "@/services/sharing";
 import { subscribeFriendGroups } from "@/services/friendGroups";
+import { subscribeFriends } from "@/services/friends";
 import {
   createFolder,
   deleteFolder,
   subscribeFolders,
   updateFolder,
 } from "@/services/folders";
-import type { Folder, FolderFinancials } from "@/types";
+import type { Folder, FolderFinancials, Friend } from "@/types";
 import { formatDate } from "@/utils/format";
 import { folderTotal, formatMoney } from "@/utils/money";
 import { alpha, folderMetrics, millis } from "@/utils/sortMetrics";
@@ -63,6 +64,7 @@ export default function DashboardPage() {
     ) => subscribeInvitations(uid, next, fail),
     [uid],
   );
+  const friendSub=useCallback((next:(items:Friend[])=>void,fail:(error:Error)=>void)=>subscribeFriends(uid,next,fail),[uid]);
   const sharedSub = useCallback(
     (
       next: Parameters<typeof subscribeSharedFolders>[1],
@@ -73,12 +75,13 @@ export default function DashboardPage() {
   const folders = useCollectionData(folderSub),
     groups = useCollectionData(groupSub),
     invitations = useCollectionData(invitationSub),
-    shared = useCollectionData(sharedSub);
+    shared = useCollectionData(sharedSub), friends=useCollectionData(friendSub);
   const [financials, setFinancials] = useState<FolderFinancials[]>([]),
     [editing, setEditing] = useState<Folder | "new" | null>(null),
     [deleting, setDeleting] = useState<Folder | null>(null),
     [busy, setBusy] = useState(false),
-    [message, setMessage] = useState<string | null>(null);
+    [message, setMessage] = useState<string | null>(null),[selectedPeople,setSelectedPeople]=useState<string[]>([]),[manualPeople,setManualPeople]=useState<string[]>([]),[selectedGroup,setSelectedGroup]=useState(""),[addingFriends,setAddingFriends]=useState(false),[friendDraft,setFriendDraft]=useState<string[]>([]);
+  useEffect(()=>{if(!editing)return;const folder=editing==="new"?null:editing,groupId=folder?.defaultFriendGroupId||"",groupIds=groups.items.find(group=>group.id===groupId)?.friendIds||[],people=folder?.participantFriendIds||groupIds;setSelectedGroup(groupId);setSelectedPeople([...new Set(people.filter(id=>id!=="me"))]);setManualPeople(people.filter(id=>!groupIds.includes(id)&&id!=="me"))},[editing,groups.items]);
   useEffect(() => {
     backfillSharedFolderMemberships(uid).catch(() => setMessage("Unable to refresh shared-folder access."));
   }, [uid]);
@@ -122,6 +125,7 @@ export default function DashboardPage() {
         name: String(data.get("name")),
         icon: String(data.get("icon")),
         defaultFriendGroupId: String(data.get("group")) || null,
+        participantFriendIds:[...new Set(selectedPeople.filter(id=>id!=="me"))],
       };
     try {
       if (editing === "new") await createFolder(uid, input);
@@ -377,11 +381,8 @@ export default function DashboardPage() {
           <SelectField
             label="Default friend group (optional)"
             name="group"
-            defaultValue={
-              editing && editing !== "new"
-                ? editing.defaultFriendGroupId || ""
-                : ""
-            }
+            value={selectedGroup}
+            onChange={event=>{const id=event.target.value,groupIds=groups.items.find(group=>group.id===id)?.friendIds||[];setSelectedGroup(id);setSelectedPeople([...new Set([...manualPeople,...groupIds].filter(value=>value!=="me"))])}}
           >
             <option value="">None</option>
             {groups.items.map((group) => (
@@ -390,6 +391,7 @@ export default function DashboardPage() {
               </option>
             ))}
           </SelectField>
+          <div className="folder-people-picker"><div className="section-heading"><div><strong>People</strong><p>Participants only. Folder access is managed separately through Sharing.</p></div><Button type="button" variant="secondary" onClick={()=>{setFriendDraft(selectedPeople);setAddingFriends(true)}}>+ Add Friends</Button></div><div className="participant-chips">{selectedPeople.map(id=>{const person=friends.items.find(friend=>friend.id===id);return <button type="button" className="person-chip" key={id} onClick={()=>{setSelectedPeople(values=>values.filter(value=>value!==id));setManualPeople(values=>values.filter(value=>value!==id))}}>{person?.name||"Unknown"} ×</button>})}{!selectedPeople.length&&<span className="muted-copy">Me only</span>}</div></div>
           <div className="dialog-actions">
             {editing !== "new" && (
               <Button
@@ -415,6 +417,7 @@ export default function DashboardPage() {
           </div>
         </form>
       </Dialog>
+      <Dialog open={addingFriends} title="Add Friends" onClose={()=>setAddingFriends(false)}><div className="friend-selector">{friends.items.filter(friend=>!friend.isMe&&!friend.archived).map(friend=><label key={friend.id}><input type="checkbox" checked={friendDraft.includes(friend.id)} onChange={()=>setFriendDraft(values=>values.includes(friend.id)?values.filter(id=>id!==friend.id):[...values,friend.id])}/><span>{friend.name}</span></label>)}</div><div className="dialog-actions"><Button variant="secondary" onClick={()=>setAddingFriends(false)}>Cancel</Button><span/><Button onClick={()=>{setSelectedPeople([...new Set(friendDraft)]);const groupIds=groups.items.find(group=>group.id===selectedGroup)?.friendIds||[];setManualPeople(friendDraft.filter(id=>!groupIds.includes(id)));setAddingFriends(false)}}>Add Selected</Button></div></Dialog>
       <Dialog
         open={!!deleting}
         title="Delete folder?"

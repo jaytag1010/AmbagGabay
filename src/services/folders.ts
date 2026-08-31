@@ -8,7 +8,7 @@ const foldersRef = (uid: string) => collection(requireDb(), "users", uid, "folde
 async function validate(uid: string, input: FolderInput) {
   const name = cleanName(input.name); if (!name) throw new Error("Folder name is required.");
   if (input.defaultFriendGroupId) { const group = await getDoc(doc(requireDb(), "users", uid, "friendGroups", input.defaultFriendGroupId)); if (!group.exists()) throw new Error("The selected default group no longer exists."); }
-  return { name, icon: input.icon || "📁", defaultFriendGroupId: input.defaultFriendGroupId || null };
+  return { name, icon: input.icon || "📁", defaultFriendGroupId: input.defaultFriendGroupId || null, participantFriendIds:[...new Set((input.participantFriendIds||[]).filter(id=>id&&id!=="me"))] };
 }
 export function subscribeFolders(uid: string, callback: (items: Folder[]) => void, onError: (error: Error) => void) { return onSnapshot(query(foldersRef(uid), orderBy("createdAt", "desc")), snapshot => callback(snapshot.docs.map(item => ({ id: item.id, ...item.data() } as Folder))), onError); }
 export async function getFolder(uid: string, id: string) { const result = await getDoc(doc(foldersRef(uid), id)); return result.exists() ? ({ id: result.id, ...result.data() } as Folder) : null; }
