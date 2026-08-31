@@ -128,11 +128,8 @@ export async function inviteToFolder(
     `${folderId}_${profile.uid}`,
   );
   const notificationRef=doc(collection(db,"users",profile.uid,"notifications"));
-  await runTransaction(db, async (tx) => {
-    const existing = await tx.get(invitationRef);
-    if (existing.exists() && existing.data().status === "pending")
-      throw new Error("An invitation for this user is already pending.");
-    tx.set(invitationRef, {
+  const invitationBatch=writeBatch(db);
+  invitationBatch.set(invitationRef, {
       folderId,
       folderNameSnapshot: folder.name,
       ownerId: uid,
@@ -145,8 +142,8 @@ export async function inviteToFolder(
       createdAt: serverTimestamp(),
       respondedAt: null,
     });
-    tx.set(notificationRef,{type:"folder-invitation",title:"Folder Invitation",message:`${ownerName} invited you to ${folder.name} as ${role}.`,actorUid:uid,recipientUid:profile.uid,recipientNameSnapshot:profile.displayName,folderInvitationId:invitationRef.id,read:false,createdAt:serverTimestamp()});
-  });
+  invitationBatch.set(notificationRef,{type:"folder-invitation",title:"Folder Invitation",message:`${ownerName} invited you to ${folder.name} as ${role}.`,actorUid:uid,recipientUid:profile.uid,recipientNameSnapshot:profile.displayName,folderInvitationId:invitationRef.id,read:false,createdAt:serverTimestamp()});
+  try{await invitationBatch.commit()}catch(cause){if(cause instanceof Error&&cause.message.toLowerCase().includes("permission"))throw new Error("This invitation may already be pending, or your Folder sharing access could not be verified. Refresh Manage Sharing to check pending invitations.");throw cause}
   await logActivity(uid, {
     action: "Folder invitation sent",
     description: `${profile.displayName} invited to ${folder.name} as ${role}`,
