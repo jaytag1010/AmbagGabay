@@ -58,6 +58,8 @@ export default function FolderDetailPage() {
     [shareFriendId, setShareFriendId] = useState(""),
     [shareRole, setShareRole] = useState<"editor" | "viewer">("editor"),
     [sharingBusy, setSharingBusy] = useState(false),
+    [shareError, setShareError] = useState<string | null>(null),
+    [shareSuccess, setShareSuccess] = useState<string | null>(null),
     [settling, setSettling] = useState(false),
     [sharedFolderId, setSharedFolderId] = useState<string | null>(null);
   const contributionSub = useCallback(
@@ -184,7 +186,7 @@ export default function FolderDetailPage() {
           <Button variant="secondary" onClick={() => setSettling(true)}>
             Settle Payments
           </Button>
-          <Button variant="secondary" onClick={() => setSharing(true)}>
+          <Button variant="secondary" onClick={() => {setShareError(null);setShareSuccess(null);setSharing(true)}}>
             <Share2 size={18} /> Share
           </Button>
           <Link
@@ -360,8 +362,10 @@ export default function FolderDetailPage() {
       <Dialog
         open={sharing}
         title="Share Folder"
-        onClose={() => setSharing(false)}
+        onClose={() => {setSharing(false);setShareError(null);setShareSuccess(null)}}
       >
+        <Notice message={shareError} />
+        {shareSuccess && <p className="positive"><strong>{shareSuccess}</strong></p>}
         {linkedFriends.length ? <SelectField label="Friend" value={shareFriendId} onChange={event=>setShareFriendId(event.target.value)}><option value="">Select linked Friend</option>{linkedFriends.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</SelectField> : <div><p><strong>No linked Friends available.</strong></p><p className="muted-copy">Link a Friend to an AmbagGabay account first before sharing this Folder.</p><Link className="text-link" href="/friends">Go to Friends</Link></div>}
         <SelectField
           label="Role"
@@ -374,7 +378,7 @@ export default function FolderDetailPage() {
           <option value="viewer">Viewer</option>
         </SelectField>
         <div className="dialog-actions">
-          <Button variant="secondary" onClick={() => setSharing(false)}>
+          <Button variant="secondary" onClick={() => {setSharing(false);setShareError(null);setShareSuccess(null)}}>
             Cancel
           </Button>
           <span />
@@ -391,6 +395,8 @@ export default function FolderDetailPage() {
             onClick={async () => {
               if (!folder) return;
               setSharingBusy(true);
+              setShareError(null);
+              setShareSuccess(null);
               try {
                 const selected=friends.items.find(item=>item.id===shareFriendId);if(!selected)return;
                 const involved=(folder.participantFriendIds||[]).includes(selected.id)||groups.items.find(group=>group.id===folder.defaultFriendGroupId)?.friendIds.includes(selected.id)||contributions.items.some(c=>c.participantIds.includes(selected.id)||c.payerFriendId===selected.id||c.expenses.some(e=>e.participantIds.includes(selected.id)||effectiveExpensePayer(c,e)===selected.id))||settlements.some(s=>s.fromFriendId===selected.id||s.toFriendId===selected.id);
@@ -403,9 +409,9 @@ export default function FolderDetailPage() {
                   shareRole,
                 );
                 setSharedFolderId(result.folderId);
-                setError("Invitation sent.");
+                setShareSuccess("Invitation sent.");
               } catch (cause) {
-                setError(
+                setShareError(
                   cause instanceof Error
                     ? cause.message
                     : "Unable to send invitation.",

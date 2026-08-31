@@ -6,6 +6,7 @@ service cloud.firestore {
     function sharedFolder(folderId) { return get(/databases/$(database)/documents/sharedFolders/$(folderId)); }
     function membership(folderId) { return get(/databases/$(database)/documents/sharedFolders/$(folderId)/members/$(request.auth.uid)); }
     function sharedOwner(folderId) { return signedIn() && sharedFolder(folderId).data.ownerId == request.auth.uid; }
+    function sharedOwnerAfter(folderId) { return signedIn() && getAfter(/databases/$(database)/documents/sharedFolders/$(folderId)).data.ownerId == request.auth.uid; }
     function sharedMember(folderId) { return signedIn() && exists(/databases/$(database)/documents/sharedFolders/$(folderId)/members/$(request.auth.uid)); }
     function sharedEditor(folderId) { return sharedMember(folderId) && membership(folderId).data.role in ['owner','editor']; }
 
@@ -91,7 +92,11 @@ service cloud.firestore {
         allow create: if sharedOwner(folderId) || (request.auth.uid == memberId && request.resource.data.role == 'owner' && getAfter(/databases/$(database)/documents/sharedFolders/$(folderId)).data.ownerId == request.auth.uid) || (request.auth.uid == memberId && get(/databases/$(database)/documents/folderInvitations/$(folderId + '_' + memberId)).data.status == 'pending' && request.resource.data.role == get(/databases/$(database)/documents/folderInvitations/$(folderId + '_' + memberId)).data.role);
         allow update, delete: if sharedOwner(folderId) && memberId != sharedFolder(folderId).data.ownerId;
       }
-      match /people/{personId} { allow read: if sharedMember(folderId); allow write: if sharedOwner(folderId); }
+      match /people/{personId} {
+        allow read: if sharedMember(folderId);
+        allow create: if sharedOwner(folderId) || sharedOwnerAfter(folderId);
+        allow update, delete: if sharedOwner(folderId);
+      }
       match /personRequests/{requestId} {
         allow read: if sharedMember(folderId);
         allow create: if sharedEditor(folderId) && request.resource.data.folderId == folderId && request.resource.data.proposerUid == request.auth.uid && request.resource.data.status == 'pending' && request.resource.data.people is list && request.resource.data.people.size() > 0;
