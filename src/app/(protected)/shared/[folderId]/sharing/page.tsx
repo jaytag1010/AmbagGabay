@@ -37,10 +37,10 @@ export default function ManageSharingPage() {
   );
   const inviteSub = useCallback(
     (
-      next: Parameters<typeof subscribeFolderInvitations>[1],
-      fail: Parameters<typeof subscribeFolderInvitations>[2],
-    ) => subscribeFolderInvitations(folderId, next, fail),
-    [folderId],
+      next: Parameters<typeof subscribeFolderInvitations>[2],
+      fail: Parameters<typeof subscribeFolderInvitations>[3],
+    ) => subscribeFolderInvitations(uid,folderId, next, fail),
+    [uid,folderId],
   );
   const members = useCollectionData(memberSub),
     invitations = useCollectionData(inviteSub),
@@ -64,7 +64,7 @@ export default function ManageSharingPage() {
       </Link>
       <h1>Manage Sharing</h1>
       <p className="muted-copy">{folder.name}</p>
-      <Notice message={members.error || invitations.error || error} />
+      <Notice message={members.error?"Current members could not be loaded.":invitations.error?"Pending invitations could not be loaded.":error} />
       <section className="panel"><h2>Add Person</h2>{linked.length?<><SelectField label="Friend" value={friendId} onChange={e=>setFriendId(e.target.value)}><option value="">Select linked Friend</option>{linked.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</SelectField><SelectField label="Role" value={role} onChange={e=>setRole(e.target.value as "editor"|"viewer")}><option value="editor">Editor</option><option value="viewer">Viewer</option></SelectField><Button disabled={busy||!friendId} onClick={async()=>{const selected=linked.find(item=>item.id===friendId);if(!selected)return;const involved=await isSharedFriendInvolved(folder,selected);if(!involved&&!confirm(`This person is not currently involved in this Folder.\n\n${selected.name} is not part of the Folder's selected people and does not appear in any current Contribution or Expense. Sharing will give them access.\n\nProceed?`))return;setBusy(true);setError(null);try{await inviteToFolder(uid,folder,folder.ownerNameSnapshot,selected,role);setFriendId("")}catch(e){setError(e instanceof Error?e.message:"Unable to invite Friend.")}finally{setBusy(false)}}}>Send Invitation</Button></>:<><p><strong>No linked Friends available.</strong></p><p className="muted-copy">Link a Friend to an AmbagGabay account first before sharing this Folder.</p><Link className="text-link" href="/friends">Go to Friends</Link></>}</section>
       <section className="panel">
         <h2>Owner</h2><p><strong>{folder.ownerNameSnapshot}</strong></p><h2>Currently Shared With</h2>

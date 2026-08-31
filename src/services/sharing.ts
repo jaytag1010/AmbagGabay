@@ -128,6 +128,14 @@ export async function inviteToFolder(
     `${folderId}_${profile.uid}`,
   );
   const notificationRef=doc(collection(db,"users",profile.uid,"notifications"));
+  const ownedInvitations=await getDocs(query(collection(db,"folderInvitations"),where("ownerId","==",uid))),existingInvitation=ownedInvitations.docs.find(item=>item.id===invitationRef.id);
+  if(existingInvitation?.data().status==="pending"){
+    const delivery=writeBatch(db);
+    delivery.set(notificationRef,{type:"folder-invitation",title:"Folder Invitation",message:`${ownerName} invited you to ${folder.name} as ${existingInvitation.data().role}.`,actorUid:uid,recipientUid:profile.uid,recipientNameSnapshot:profile.displayName,folderInvitationId:invitationRef.id,read:false,createdAt:serverTimestamp()});
+    await delivery.commit();
+    return {folderId,profile,reused:true};
+  }
+  if(existingInvitation?.data().status==="accepted")throw new Error(`${profile.displayName} already accepted an invitation to this Folder.`);
   const invitationBatch=writeBatch(db);
   invitationBatch.set(invitationRef, {
       folderId,
@@ -143,7 +151,7 @@ export async function inviteToFolder(
       respondedAt: null,
     });
   invitationBatch.set(notificationRef,{type:"folder-invitation",title:"Folder Invitation",message:`${ownerName} invited you to ${folder.name} as ${role}.`,actorUid:uid,recipientUid:profile.uid,recipientNameSnapshot:profile.displayName,folderInvitationId:invitationRef.id,read:false,createdAt:serverTimestamp()});
-  try{await invitationBatch.commit()}catch(cause){if(cause instanceof Error&&cause.message.toLowerCase().includes("permission"))throw new Error("This invitation may already be pending, or your Folder sharing access could not be verified. Refresh Manage Sharing to check pending invitations.");throw cause}
+  await invitationBatch.commit();
   await logActivity(uid, {
     action: "Folder invitation sent",
     description: `${profile.displayName} invited to ${folder.name} as ${role}`,
@@ -504,6 +512,7 @@ export function subscribeFolderMembers(
   );
 }
 export function subscribeFolderInvitations(
+  uid: string,
   folderId: string,
   next: (items: FolderInvitation[]) => void,
   onError: (error: Error) => void,
@@ -511,13 +520,13 @@ export function subscribeFolderInvitations(
   return onSnapshot(
     query(
       collection(requireDb(), "folderInvitations"),
-      where("folderId", "==", folderId),
+      where("ownerId", "==", uid),
     ),
     (snapshot) =>
       next(
         snapshot.docs
           .map((item) => ({ id: item.id, ...item.data() }) as FolderInvitation)
-          .filter((item) => item.status === "pending"),
+          .filter((item) => item.folderId===folderId && item.status === "pending"),
       ),
     onError,
   );

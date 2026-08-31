@@ -409,13 +409,10 @@ export default function FolderDetailPage() {
                   shareRole,
                 );
                 setSharedFolderId(result.folderId);
-                setShareSuccess("Invitation sent.");
+                setShareSuccess(result.reused?"Invitation is already pending. The recipient notification was refreshed.":"Invitation sent.");
               } catch (cause) {
-                setShareError(
-                  cause instanceof Error
-                    ? cause.message
-                    : "Unable to send invitation.",
-                );
+                if(process.env.NODE_ENV==="development")console.error("Folder invitation failed",cause);
+                setShareError(cause instanceof Error&&!cause.message.toLowerCase().includes("permission")?cause.message:"We couldn't send the invitation. Please try again.");
               } finally {
                 setSharingBusy(false);
               }
