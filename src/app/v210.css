@@ -1,0 +1,14 @@
+.qr-upload-preview {
+  display: grid;
+  gap: 10px;
+  text-align: center;
+}
+
+.qr-upload-preview img {
+  width: min(100%, 180px);
+  height: auto;
+  justify-self: center;
+  padding: 10px;
+  border-radius: 12px;
+  background: white;
+}

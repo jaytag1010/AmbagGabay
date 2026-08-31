@@ -9,13 +9,29 @@ import {
   serverTimestamp,
   updateDoc,
 } from "firebase/firestore";
-import { requireDb } from "@/lib/firebase";
+import { requireAuth, requireDb } from "@/lib/firebase";
 import { logActivity } from "@/services/activities";
-import {
-  removeProfilePicture,
-  uploadPaymentQR,
-} from "@/services/profilePictures";
 import type { PaymentMethod, PaymentProvider } from "@/types";
+
+async function uploadPaymentQR(file: File) {
+  const token = await requireAuth().currentUser?.getIdToken();
+  if (!token) throw new Error("Sign in again before uploading an image.");
+  const form = new FormData();
+  form.set("image", file);
+  const response = await fetch("/api/upload/qr", {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}` },
+    body: form,
+  });
+  const payload = (await response.json().catch(() => null)) as {
+    url?: string;
+    imageId?: string;
+    error?: string;
+  } | null;
+  if (!response.ok || !payload?.url)
+    throw new Error(payload?.error || "Unable to upload QR image.");
+  return payload;
+}
 
 const methodsRef = (ownerUid: string, localFriendId?: string | null) =>
   localFriendId
@@ -57,6 +73,7 @@ export async function savePaymentMethod(
     qrFile?: File | null;
     existingQrUrl?: string | null;
     existingQrPath?: string | null;
+    existingQrImageId?: string | null;
     removeQr?: boolean;
   },
 ) {
@@ -80,31 +97,30 @@ export async function savePaymentMethod(
       ? doc(methodsRef(ownerUid, input.localFriendId), input.id)
       : null;
   let qrCodeUrl = keepsQr ? input.existingQrUrl : null,
-    qrCodeStoragePath = keepsQr ? input.existingQrPath : null;
+    qrCodeStoragePath = keepsQr ? input.existingQrPath : null,
+    qrImageId = keepsQr ? input.existingQrImageId : null;
   if (input.qrFile) {
-    const uploaded = await uploadPaymentQR(
-      ownerUid,
-      input.localFriendId ? `friends/${input.localFriendId}` : "user",
-      input.qrFile,
-    );
-    qrCodeUrl = uploaded.qrCodeUrl;
-    qrCodeStoragePath = uploaded.qrCodeStoragePath;
+    const uploaded = await uploadPaymentQR(input.qrFile);
+    qrCodeUrl = uploaded.url;
+    qrImageId = uploaded.imageId || null;
+    qrCodeStoragePath = null;
   }
-  if (ref) await updateDoc(ref, { ...base, qrCodeUrl, qrCodeStoragePath });
+  if (ref)
+    await updateDoc(ref, {
+      ...base,
+      qrCodeUrl,
+      qrImageId,
+      qrCodeStoragePath,
+    });
   else
     await addDoc(methodsRef(ownerUid, input.localFriendId), {
       ...base,
       qrCodeUrl,
+      qrImageId,
       qrCodeStoragePath,
       isPreferred: false,
       createdAt: serverTimestamp(),
     });
-  if (
-    (input.removeQr || input.qrFile) &&
-    input.existingQrPath &&
-    input.existingQrPath !== qrCodeStoragePath
-  )
-    await removeProfilePicture(input.existingQrPath);
   await logActivity(ownerUid, {
     action: input.id ? "Payment method edited" : "Payment method added",
     description: `${input.provider === "other" ? custom : providerLabel(input.provider)} payment method`,
@@ -117,7 +133,6 @@ export async function deletePaymentMethod(
   localFriendId?: string | null,
 ) {
   await deleteDoc(doc(methodsRef(ownerUid, localFriendId), method.id));
-  await removeProfilePicture(method.qrCodeStoragePath);
 }
 export const providerLabel = (
   provider: PaymentProvider,

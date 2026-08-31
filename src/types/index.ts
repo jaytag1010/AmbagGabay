@@ -32,8 +32,25 @@ export interface Friend {
   linkedUserId?: string | null;
   linkedEmail?: string | null;
 }
-export type PaymentProvider = "gcash" | "maya" | "maribank" | "landbank" | "other";
-export interface PaymentMethod { id:string; provider:PaymentProvider; customProviderName?:string|null; accountName:string; accountNumber?:string|null; qrCodeUrl?:string|null; qrCodeStoragePath?:string|null; isPreferred?:boolean; createdAt:Timestamp; updatedAt:Timestamp }
+export type PaymentProvider =
+  | "gcash"
+  | "maya"
+  | "maribank"
+  | "landbank"
+  | "other";
+export interface PaymentMethod {
+  id: string;
+  provider: PaymentProvider;
+  customProviderName?: string | null;
+  accountName: string;
+  accountNumber?: string | null;
+  qrCodeUrl?: string | null;
+  qrImageId?: string | null;
+  qrCodeStoragePath?: string | null;
+  isPreferred?: boolean;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
 export interface FriendGroup {
   id: string;
   name: string;
@@ -82,9 +99,30 @@ export interface FolderMembership {
   displayNameSnapshot: string;
   joinedAt: Timestamp;
 }
-export interface SharedPerson { id:string; friendId:string; linkedUserId?:string|null; displayNameSnapshot:string; photoURLSnapshot?:string|null }
-export interface ProposedFolderPerson { sourceFriendId:string; linkedUserId?:string|null; displayNameSnapshot:string; photoURLSnapshot?:string|null }
-export interface FolderPersonRequest { id:string; folderId:string; proposerUid:string; proposerNameSnapshot:string; people:ProposedFolderPerson[]; status:"pending"|"approved"|"rejected"; createdAt:Timestamp; respondedAt?:Timestamp|null; respondedBy?:string|null }
+export interface SharedPerson {
+  id: string;
+  friendId: string;
+  linkedUserId?: string | null;
+  displayNameSnapshot: string;
+  photoURLSnapshot?: string | null;
+}
+export interface ProposedFolderPerson {
+  sourceFriendId: string;
+  linkedUserId?: string | null;
+  displayNameSnapshot: string;
+  photoURLSnapshot?: string | null;
+}
+export interface FolderPersonRequest {
+  id: string;
+  folderId: string;
+  proposerUid: string;
+  proposerNameSnapshot: string;
+  people: ProposedFolderPerson[];
+  status: "pending" | "approved" | "rejected";
+  createdAt: Timestamp;
+  respondedAt?: Timestamp | null;
+  respondedBy?: string | null;
+}
 export interface FolderInvitation {
   id: string;
   folderId: string;
@@ -156,7 +194,12 @@ export interface Settlement {
   amount: number;
   date: Timestamp;
   note?: string;
-  source?: "individual" | "all" | "paid-approved" | "received" | "nonlinked-executory";
+  source?:
+    | "individual"
+    | "all"
+    | "paid-approved"
+    | "received"
+    | "nonlinked-executory";
   initiatedByUserId?: string | null;
   approvedByUserId?: string | null;
   executedByUserId?: string | null;
@@ -164,9 +207,45 @@ export interface Settlement {
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
-export interface SettlementAllocation { folderId:string; contributionId:string; fromFriendId:string; toFriendId:string; amount:number; contributionTitle:string; expectedPreviouslySettled?:number }
-export interface SettlementRequest { id:string; requesterUid:string; approverUid:string; requesterName:string; approverName:string; amount:number; allocations:SettlementAllocation[]; status:"pending"|"approved"|"disapproved"|"cancelled"|"invalidated"; requestedAction:"paid"; createdAt:Timestamp; respondedAt?:Timestamp|null; disapprovalReason?:string|null }
-export interface AppNotification { id:string; type:"payment-pending"|"payment-approval-request"|"payment-approved"|"payment-disapproved"|"payment-received-recorded"; title:string; message:string; actorUid:string; recipientUid:string; settlementRequestId?:string|null; read:boolean; createdAt:Timestamp }
+export interface SettlementAllocation {
+  folderId: string;
+  contributionId: string;
+  fromFriendId: string;
+  toFriendId: string;
+  amount: number;
+  contributionTitle: string;
+  expectedPreviouslySettled?: number;
+}
+export interface SettlementRequest {
+  id: string;
+  requesterUid: string;
+  approverUid: string;
+  requesterName: string;
+  approverName: string;
+  amount: number;
+  allocations: SettlementAllocation[];
+  status: "pending" | "approved" | "disapproved" | "cancelled" | "invalidated";
+  requestedAction: "paid";
+  createdAt: Timestamp;
+  respondedAt?: Timestamp | null;
+  disapprovalReason?: string | null;
+}
+export interface AppNotification {
+  id: string;
+  type:
+    | "payment-pending"
+    | "payment-approval-request"
+    | "payment-approved"
+    | "payment-disapproved"
+    | "payment-received-recorded";
+  title: string;
+  message: string;
+  actorUid: string;
+  recipientUid: string;
+  settlementRequestId?: string | null;
+  read: boolean;
+  createdAt: Timestamp;
+}
 export interface ActivityEntry {
   id: string;
   action: string;

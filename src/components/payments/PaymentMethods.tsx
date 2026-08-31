@@ -1,5 +1,11 @@
 "use client";
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+} from "react";
 import Image from "next/image";
 import { Copy, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -168,6 +174,16 @@ export function PaymentMethodsPanel({
     [removeQr, setRemoveQr] = useState(false),
     [busy, setBusy] = useState(false),
     [message, setMessage] = useState<string | null>(null);
+  const qrPreview = useMemo(
+    () => (qrFile ? URL.createObjectURL(qrFile) : null),
+    [qrFile],
+  );
+  useEffect(
+    () => () => {
+      if (qrPreview) URL.revokeObjectURL(qrPreview);
+    },
+    [qrPreview],
+  );
   useEffect(() => {
     setProvider(editing && editing !== "new" ? editing.provider : "gcash");
     setQrFile(null);
@@ -190,6 +206,7 @@ export function PaymentMethodsPanel({
         qrFile,
         existingQrUrl: old?.qrCodeUrl,
         existingQrPath: old?.qrCodeStoragePath,
+        existingQrImageId: old?.qrImageId,
         removeQr,
       });
       setEditing(null);
@@ -320,7 +337,18 @@ export function PaymentMethodsPanel({
               onChange={(event) => chooseQr(event.target.files?.[0] || null)}
             />
           </label>
-          {qrFile && <p className="muted-copy">Selected: {qrFile.name}</p>}
+          {qrFile && qrPreview && (
+            <div className="qr-upload-preview">
+              <Image
+                src={qrPreview}
+                width={180}
+                height={180}
+                unoptimized
+                alt="Selected QR code preview"
+              />
+              <p className="muted-copy">Selected: {qrFile.name}</p>
+            </div>
+          )}
           {editing &&
             editing !== "new" &&
             editing.qrCodeUrl &&
@@ -343,7 +371,9 @@ export function PaymentMethodsPanel({
               Cancel
             </Button>
             <span />
-            <Button disabled={busy}>{busy ? "Saving…" : "Save"}</Button>
+            <Button disabled={busy}>
+              {busy ? (qrFile ? "Uploading and saving…" : "Saving…") : "Save"}
+            </Button>
           </div>
         </form>
       </Dialog>
