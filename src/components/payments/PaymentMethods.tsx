@@ -102,6 +102,8 @@ function QRDialog({
   payee?: string;
   amount?: number;
 }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  useEffect(() => setImageFailed(false), [method?.qrCodeUrl]);
   return (
     <Dialog
       open={!!method}
@@ -132,14 +134,33 @@ function QRDialog({
               </>
             )}
           </p>
-          {method.qrCodeUrl && (
-            <Image
+          {method.qrCodeUrl && !imageFailed && (
+            // A direct image avoids Next/Image runtime host handling inside installed PWAs.
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              key={method.qrCodeUrl}
               src={method.qrCodeUrl}
               width={520}
               height={520}
-              unoptimized
+              loading="eager"
+              decoding="async"
+              referrerPolicy="no-referrer"
+              onError={() => setImageFailed(true)}
               alt={`${providerLabel(method.provider, method.customProviderName)} QR code for ${method.accountName || "account"}`}
             />
+          )}
+          {method.qrCodeUrl && imageFailed && (
+            <div className="qr-load-error" role="alert">
+              <p>The QR image could not be displayed in this window.</p>
+              <a
+                className="button button-secondary"
+                href={method.qrCodeUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open QR Image
+              </a>
+            </div>
           )}
           <Button variant="secondary" onClick={onClose}>
             Close
