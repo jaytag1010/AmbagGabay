@@ -16,8 +16,20 @@ service cloud.firestore {
       allow delete: if false;
       match /friends/{friendId} {
         allow read: if isOwner(uid);
-        allow create: if isOwner(uid) && (friendId != 'me' || (request.resource.data.isMe == true && request.resource.data.archived == false));
-        allow update: if isOwner(uid) && !(friendId == 'me' && (request.resource.data.isMe != true || request.resource.data.archived != false));
+        allow create: if isOwner(uid) && (!request.resource.data.keys().hasAny(['linkedUserId']) || request.resource.data.linkedUserId == null) && (friendId != 'me' || (request.resource.data.isMe == true && request.resource.data.archived == false));
+        allow update: if (isOwner(uid)
+          && !(friendId == 'me' && (request.resource.data.isMe != true || request.resource.data.archived != false))
+          && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['linkedUserId','linkedEmail','linkedDisplayName','linkedByRequestId']) || request.resource.data.linkedUserId == null))
+          || (signedIn()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['linkedUserId','linkedEmail','linkedDisplayName','linkedByRequestId','updatedAt'])
+            && request.resource.data.linkedUserId == request.auth.uid
+            && request.resource.data.linkedByRequestId is string
+            && getAfter(/databases/$(database)/documents/accountLinkRequests/$(request.resource.data.linkedByRequestId)).data.status == 'accepted'
+            && getAfter(/databases/$(database)/documents/accountLinkRequests/$(request.resource.data.linkedByRequestId)).data.requesterUid == uid
+            && getAfter(/databases/$(database)/documents/accountLinkRequests/$(request.resource.data.linkedByRequestId)).data.requesterFriendId == friendId
+            && getAfter(/databases/$(database)/documents/accountLinkRequests/$(request.resource.data.linkedByRequestId)).data.targetUid == request.auth.uid
+            && request.resource.data.linkedDisplayName == getAfter(/databases/$(database)/documents/accountLinkRequests/$(request.resource.data.linkedByRequestId)).data.targetNameSnapshot
+            && request.resource.data.linkedEmail == getAfter(/databases/$(database)/documents/accountLinkRequests/$(request.resource.data.linkedByRequestId)).data.targetEmailSnapshot);
         allow delete: if false;
         match /paymentMethods/{methodId} { allow read, write: if isOwner(uid); }
       }
@@ -25,7 +37,17 @@ service cloud.firestore {
         allow read: if isOwner(uid) || (signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)/friendLinks/$(uid)));
         allow create, update, delete: if isOwner(uid);
       }
-      match /friendLinks/{linkedUid} { allow read, write: if isOwner(uid); }
+      match /friendLinks/{linkedUid} {
+        allow read: if isOwner(uid);
+        allow create: if signedIn() && request.auth.uid == linkedUid
+          && request.resource.data.accountLinkRequestId is string
+          && getAfter(/databases/$(database)/documents/accountLinkRequests/$(request.resource.data.accountLinkRequestId)).data.status == 'accepted'
+          && getAfter(/databases/$(database)/documents/accountLinkRequests/$(request.resource.data.accountLinkRequestId)).data.requesterUid == uid
+          && getAfter(/databases/$(database)/documents/accountLinkRequests/$(request.resource.data.accountLinkRequestId)).data.requesterFriendId == request.resource.data.friendId
+          && getAfter(/databases/$(database)/documents/accountLinkRequests/$(request.resource.data.accountLinkRequestId)).data.targetUid == linkedUid;
+        allow update: if false;
+        allow delete: if isOwner(uid);
+      }
       match /friendGroups/{groupId} { allow read, write: if isOwner(uid); }
       match /sharedFolderMemberships/{folderId} {
         allow read: if isOwner(uid);
@@ -95,6 +117,26 @@ service cloud.firestore {
       allow create: if signedIn() && request.resource.data.requesterUid == request.auth.uid && request.resource.data.approverUid != request.auth.uid && request.resource.data.status == 'pending';
       allow read: if signedIn() && (resource.data.requesterUid == request.auth.uid || resource.data.approverUid == request.auth.uid);
       allow update: if signedIn() && resource.data.status == 'pending' && ((resource.data.approverUid == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','respondedAt','disapprovalReason']) && request.resource.data.status in ['approved','disapproved']) || (resource.data.requesterUid == request.auth.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','respondedAt']) && request.resource.data.status == 'cancelled'));
+      allow delete: if false;
+    }
+    match /accountLinkRequests/{requestId} {
+      allow create: if signedIn()
+        && request.resource.data.requesterUid == request.auth.uid
+        && request.resource.data.targetUid != request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.requesterFriendId is string
+        && request.resource.data.requesterFriendNameSnapshot is string
+        && request.resource.data.requesterNameSnapshot is string
+        && request.resource.data.targetNameSnapshot is string
+        && request.resource.data.targetEmailSnapshot is string;
+      allow read: if signedIn() && (resource.data.requesterUid == request.auth.uid || resource.data.targetUid == request.auth.uid);
+      allow update: if signedIn() && resource.data.status == 'pending'
+        && ((resource.data.targetUid == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','respondedAt','declineReason'])
+          && request.resource.data.status in ['accepted','declined'])
+        || (resource.data.requesterUid == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','respondedAt'])
+          && request.resource.data.status == 'cancelled'));
       allow delete: if false;
     }
     match /{document=**} { allow read, write: if false; }

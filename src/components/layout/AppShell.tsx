@@ -3,13 +3,21 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect } from "react";
-import { Activity, Bell, Home, Settings, UserRound, UsersRound } from "lucide-react";
+import {
+  Activity,
+  Bell,
+  Home,
+  Settings,
+  UserRound,
+  UsersRound,
+} from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { LoadingState, Notice } from "@/components/ui/Feedback";
 import { useAuth } from "@/hooks/useAuth";
 import { useCollectionData } from "@/hooks/useCollectionData";
 import { subscribeUserProfile } from "@/services/users";
-import type { UserProfile } from "@/types";
+import { subscribeNotifications } from "@/services/notifications";
+import type { AppNotification, UserProfile } from "@/types";
 import { UserProfileProvider } from "@/components/providers/UserProfileProvider";
 const links = [
   { href: "/", label: "Home", icon: Home },
@@ -33,6 +41,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     [currentUser],
   );
   const profile = useCollectionData(currentUser ? profileSub : null).items[0];
+  const notificationSub = useCallback(
+    (next: (items: AppNotification[]) => void, fail: (error: Error) => void) =>
+      subscribeNotifications(currentUser!.uid, next, fail),
+    [currentUser],
+  );
+  const notifications = useCollectionData(currentUser ? notificationSub : null);
+  const unreadCount = notifications.items.filter((item) => !item.read).length;
   useEffect(() => {
     if (!loading && !currentUser)
       router.replace(`/login?next=${encodeURIComponent(path)}`);
@@ -72,6 +87,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               >
                 <Icon size={20} />
                 <span>{label}</span>
+                {label === "Notifications" && unreadCount > 0 && (
+                  <b
+                    className="notification-badge"
+                    aria-label={`${unreadCount} unread notifications`}
+                  >
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </b>
+                )}
               </Link>
             ))}
           </nav>
@@ -96,6 +119,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             >
               <Icon size={21} />
               <span>{label}</span>
+              {label === "Notifications" && unreadCount > 0 && (
+                <b
+                  className="notification-badge"
+                  aria-label={`${unreadCount} unread notifications`}
+                >
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </b>
+              )}
             </Link>
           ))}
         </nav>

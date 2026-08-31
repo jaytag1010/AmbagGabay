@@ -31,6 +31,8 @@ export interface Friend {
   updatedAt: Timestamp;
   linkedUserId?: string | null;
   linkedEmail?: string | null;
+  linkedDisplayName?: string | null;
+  linkedByRequestId?: string | null;
 }
 export type PaymentProvider =
   | "gcash"
@@ -230,6 +232,20 @@ export interface SettlementRequest {
   respondedAt?: Timestamp | null;
   disapprovalReason?: string | null;
 }
+export interface AccountLinkRequest {
+  id: string;
+  requesterUid: string;
+  targetUid: string;
+  requesterFriendId: string;
+  requesterFriendNameSnapshot: string;
+  requesterNameSnapshot: string;
+  targetNameSnapshot: string;
+  targetEmailSnapshot: string;
+  status: "pending" | "accepted" | "declined" | "cancelled";
+  createdAt: Timestamp;
+  respondedAt?: Timestamp | null;
+  declineReason?: string | null;
+}
 export interface AppNotification {
   id: string;
   type:
@@ -237,12 +253,17 @@ export interface AppNotification {
     | "payment-approval-request"
     | "payment-approved"
     | "payment-disapproved"
-    | "payment-received-recorded";
+    | "payment-received-recorded"
+    | "account-link-request"
+    | "account-link-accepted"
+    | "account-link-declined"
+    | "account-link-cancelled";
   title: string;
   message: string;
   actorUid: string;
   recipientUid: string;
   settlementRequestId?: string | null;
+  accountLinkRequestId?: string | null;
   read: boolean;
   createdAt: Timestamp;
 }
