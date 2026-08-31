@@ -34,8 +34,9 @@ export async function promotePrivateFolder(
 ) {
   const db = requireDb(),
     id = sharedId(uid, folder.id),
-    target = doc(db, "sharedFolders", id);
-  if ((await getDoc(target)).exists()) return id;
+    target = doc(db, "sharedFolders", id),
+    existing = await getDoc(target);
+  if (existing.exists() && existing.data().migrationComplete !== false) return id;
   const contributions = await getDocs(
     collection(db, "users", uid, "folders", folder.id, "contributions"),
   );
@@ -46,23 +47,35 @@ export async function promotePrivateFolder(
       where("folderId", "==", folder.id),
     ),
   );
-  const batch = writeBatch(db),
-    now = serverTimestamp();
-  batch.set(target, {
-    ...folder,
-    ownerId: uid,
-    ownerNameSnapshot: ownerName,
-    sourceFolderId: folder.id,
-    createdAt: folder.createdAt || now,
-    updatedAt: now,
-  });
-  batch.set(doc(target, "members", uid), {
-    userId: uid,
-    role: "owner",
-    displayNameSnapshot: ownerName,
-    joinedAt: now,
-  });
-  batch.set(doc(db, "users", uid, "sharedFolderMemberships", id), { userId: uid, folderId: id, role: "owner", updatedAt: now });
+  const now = serverTimestamp();
+  if (!existing.exists()) {
+    const parentSetup = writeBatch(db);
+    parentSetup.set(target, {
+      ...folder,
+      ownerId: uid,
+      ownerNameSnapshot: ownerName,
+      sourceFolderId: folder.id,
+      migrationComplete: false,
+      createdAt: folder.createdAt || now,
+      updatedAt: now,
+    });
+    await parentSetup.commit();
+  }
+  const ownerMember=doc(target,"members",uid);
+  if(!(await getDoc(ownerMember)).exists()){
+    const memberSetup=writeBatch(db);
+    memberSetup.set(ownerMember, {
+      userId: uid,
+      role: "owner",
+      displayNameSnapshot: ownerName,
+      joinedAt: now,
+    });
+    await memberSetup.commit();
+  }
+  const accessSetup=writeBatch(db);
+  accessSetup.set(doc(db, "users", uid, "sharedFolderMemberships", id), { userId: uid, folderId: id, role: "owner", updatedAt: now },{merge:true});
+  await accessSetup.commit();
+  const batch = writeBatch(db);
   friends.forEach((friend) =>
     batch.set(doc(target, "people", friend.id), {
       friendId: friend.id,
@@ -88,6 +101,7 @@ export async function promotePrivateFolder(
       ),
     );
   }
+  batch.update(target,{migrationComplete:true,updatedAt:serverTimestamp()});
   await batch.commit();
   return id;
 }
