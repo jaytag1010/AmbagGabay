@@ -1,29 +1,12 @@
 import { NextResponse } from "next/server";
 import { QR_IMAGE_SIZE_LIMIT, uploadImageToImgBB } from "@/lib/imgbb";
+import { verifyFirebaseIdToken } from "@/lib/firebaseServerAuth";
 
 export const runtime = "nodejs";
 
-async function isAuthenticated(request: Request) {
-  const token = request.headers
-    .get("authorization")
-    ?.match(/^Bearer (.+)$/)?.[1];
-  const firebaseApiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
-  if (!token || !firebaseApiKey) return false;
-  const response = await fetch(
-    `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(firebaseApiKey)}`,
-    {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ idToken: token }),
-      cache: "no-store",
-    },
-  );
-  return response.ok;
-}
-
 export async function POST(request: Request) {
   try {
-    if (!(await isAuthenticated(request)))
+    if (!(await verifyFirebaseIdToken(request)))
       return NextResponse.json(
         { error: "Authentication required." },
         { status: 401 },

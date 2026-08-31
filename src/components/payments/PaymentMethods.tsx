@@ -22,6 +22,7 @@ import {
 import { validateImage } from "@/services/profilePictures";
 import type { Friend, PaymentMethod, PaymentProvider } from "@/types";
 import { formatMoney } from "@/utils/money";
+import { requireAuth } from "@/lib/firebase";
 
 function PaymentRows({
   methods,
@@ -102,8 +103,53 @@ function QRDialog({
   payee?: string;
   amount?: number;
 }) {
-  const [imageFailed, setImageFailed] = useState(false);
-  useEffect(() => setImageFailed(false), [method?.qrCodeUrl]);
+  const [imageFailed, setImageFailed] = useState(false),
+    [displayUrl, setDisplayUrl] = useState<string | null>(null),
+    [imageLoading, setImageLoading] = useState(false);
+  useEffect(() => {
+    let active = true,
+      objectUrl: string | null = null;
+    setImageFailed(false);
+    setDisplayUrl(null);
+    if (!method?.qrCodeUrl) return;
+    try {
+      if (new URL(method.qrCodeUrl).hostname !== "i.ibb.co") {
+        setDisplayUrl(method.qrCodeUrl);
+        setImageLoading(false);
+        return;
+      }
+    } catch {
+      setImageFailed(true);
+      setImageLoading(false);
+      return;
+    }
+    setImageLoading(true);
+    void (async () => {
+      try {
+        const token = await requireAuth().currentUser?.getIdToken();
+        if (!token) throw new Error();
+        const response = await fetch("/api/images/qr", {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${token}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ url: method.qrCodeUrl }),
+        });
+        if (!response.ok) throw new Error();
+        objectUrl = URL.createObjectURL(await response.blob());
+        if (active) setDisplayUrl(objectUrl);
+      } catch {
+        if (active) setImageFailed(true);
+      } finally {
+        if (active) setImageLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [method?.qrCodeUrl]);
   return (
     <Dialog
       open={!!method}
@@ -134,12 +180,14 @@ function QRDialog({
               </>
             )}
           </p>
-          {method.qrCodeUrl && !imageFailed && (
-            // A direct image avoids Next/Image runtime host handling inside installed PWAs.
+          {method.qrCodeUrl && imageLoading && (
+            <p className="muted-copy">Loading QR image…</p>
+          )}
+          {displayUrl && !imageFailed && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              key={method.qrCodeUrl}
-              src={method.qrCodeUrl}
+              key={displayUrl}
+              src={displayUrl}
               width={520}
               height={520}
               loading="eager"
