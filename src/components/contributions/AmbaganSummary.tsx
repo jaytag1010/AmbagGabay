@@ -1,6 +1,6 @@
 import { Users } from "lucide-react";
 import type { ContributionWithExpenses } from "@/types";
-import { formatMoney, fromCentavos, splitCentavos } from "@/utils/money";
+import { contributionRoundedShares, contributionTotal, formatMoney, fromCentavos, toCentavos } from "@/utils/money";
 
 export interface AmbaganGroup {
   cents: number;
@@ -8,12 +8,7 @@ export interface AmbaganGroup {
 }
 
 export function calculateAmbagan(contribution: ContributionWithExpenses) {
-  const shares = new Map<string, number>();
-  for (const expense of contribution.expenses) {
-    for (const [participantId, cents] of splitCentavos(expense.amount, expense.participantIds)) {
-      shares.set(participantId, (shares.get(participantId) || 0) + cents);
-    }
-  }
+  const shares = contributionRoundedShares(contribution);
   const nonZeroShares = [...shares].filter(([, cents]) => cents > 0);
   const grouped = new Map<number, string[]>();
   for (const [participantId, cents] of nonZeroShares) {
@@ -50,6 +45,7 @@ export function AmbaganSummary({ contribution, labelFor }: { contribution: Contr
         <strong>{formatMoney(fromCentavos(group.cents))}{group.participantIds.length > 1 ? " each" : ""}</strong>
       </div>)}
       <div className="ambagan-total"><span>Total shares</span><strong>{formatMoney(fromCentavos(summary.totalCentavos))}</strong></div>
+      {summary.totalCentavos > toCentavos(contributionTotal(contribution)) && <div className="ambagan-benefit"><span>Rounding benefit to payer{new Set(contribution.expenses.map(item => item.payerFriendId || contribution.payerFriendId)).size > 1 ? "s" : ""}</span><strong>{formatMoney(fromCentavos(summary.totalCentavos - toCentavos(contributionTotal(contribution))))}</strong></div>}
     </div>
   </section>;
 }

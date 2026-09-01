@@ -464,6 +464,7 @@ export default function FolderDetailPage() {
                 </button>
               ))}
             </div>
+            <div className="actual-total"><span>Actual total</span><strong>{formatMoney(contributionTotal(detail))}</strong></div>
             <AmbaganSummary contribution={detail} labelFor={label} />
             <div className="dialog-actions">
               <Button variant="danger" disabled={deleting} onClick={remove}>
