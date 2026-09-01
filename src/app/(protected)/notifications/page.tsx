@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { Bell } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -230,7 +231,7 @@ function AccountLinkActions({
 function FolderInvitationActions({notification,uid}:{notification:AppNotification;uid:string}){
  const [invitation,setInvitation]=useState<import("@/types").FolderInvitation|null>(null),[reviewing,setReviewing]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState<string|null>(null);
  useEffect(()=>notification.folderInvitationId?subscribeInvitation(notification.folderInvitationId,setInvitation,e=>setError(e.message)):undefined,[notification.folderInvitationId]);
- if(error)return <Notice message={error}/>; if(!invitation)return null; if(invitation.status!=="pending")return <span className={`request-status ${invitation.status}`}>{invitation.status}</span>; if(invitation.recipientUid!==uid)return null;
+ if(error)return <Notice message={error}/>; if(!invitation)return null; if(invitation.status==="accepted")return <div className="row-actions"><span className="request-status accepted">accepted</span><Link className="button button-secondary" href={`/shared/${invitation.folderId}`}>Open Folder</Link></div>; if(invitation.status!=="pending")return <span className={`request-status ${invitation.status}`}>{invitation.status}</span>; if(invitation.recipientUid!==uid)return null;
  const respond=async(accept:boolean)=>{setBusy(true);setError(null);try{await respondInvitation(uid,invitation,accept,notification.recipientNameSnapshot||"User");setReviewing(false)}catch(e){setError(e instanceof Error?e.message:"Unable to respond.")}finally{setBusy(false)}};
  return <><Button variant="secondary" onClick={()=>setReviewing(true)}>Review</Button><Dialog open={reviewing} title="Folder Invitation" onClose={()=>setReviewing(false)}><div className="link-review"><h3>{invitation.folderNameSnapshot}</h3><p>Shared by<br/><strong>{invitation.ownerNameSnapshot}</strong></p><p>Your role<br/><strong>{invitation.role}</strong></p><p className="muted-copy">If you accept, this Folder will appear on Home under Shared With Me.</p><Notice message={error}/><div className="dialog-actions"><Button disabled={busy} variant="secondary" onClick={()=>respond(false)}>Decline</Button><span/><Button disabled={busy} onClick={()=>respond(true)}>Accept</Button></div></div></Dialog></>;
 }

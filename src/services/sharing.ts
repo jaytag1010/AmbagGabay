@@ -260,6 +260,42 @@ export async function getSharedFolder(folderId: string) {
     ? ({ id: snapshot.id, ...snapshot.data() } as SharedFolder)
     : null;
 }
+export type SharedFolderAccessFailure = "not-found" | "pending" | "removed" | "denied" | "error";
+export type SharedFolderAccess = {
+  folder: SharedFolder;
+  membership: FolderMembership;
+  role: "owner" | "editor" | "viewer";
+  canRead: true;
+  canEdit: boolean;
+  canManageSharing: boolean;
+};
+export type SharedFolderAccessResult = { access: SharedFolderAccess; failure: null } | { access: null; failure: SharedFolderAccessFailure };
+export async function resolveSharedFolderAccess(folderId: string, uid: string): Promise<SharedFolderAccessResult> {
+  const db = requireDb(), folderPath = `sharedFolders/${folderId}`, memberPath = `${folderPath}/members/${uid}`;
+  try {
+    const folderSnapshot = await getDoc(doc(db, "sharedFolders", folderId));
+    if (!folderSnapshot.exists()) return { access: null, failure: "not-found" };
+    const folder = { id: folderSnapshot.id, ...folderSnapshot.data() } as SharedFolder;
+    if (folder.ownerId === uid) return { access: { folder, membership: { id: uid, userId: uid, role: "owner", displayNameSnapshot: folder.ownerNameSnapshot, joinedAt: folder.createdAt }, role: "owner", canRead: true, canEdit: true, canManageSharing: true }, failure: null };
+    const memberSnapshot = await getDoc(doc(db, "sharedFolders", folderId, "members", uid));
+    if (!memberSnapshot.exists()) return { access: null, failure: "removed" };
+    const membership = { id: memberSnapshot.id, ...memberSnapshot.data() } as FolderMembership;
+    if (membership.userId !== uid || !["editor", "viewer"].includes(membership.role)) return { access: null, failure: "denied" };
+    return { access: { folder, membership, role: membership.role as "editor" | "viewer", canRead: true, canEdit: membership.role === "editor", canManageSharing: false }, failure: null };
+  } catch (cause) {
+    const code = typeof cause === "object" && cause && "code" in cause ? String(cause.code) : "unknown";
+    if (process.env.NODE_ENV === "development") console.error("[Folder Open] access resolution failed", { folderPath, memberPath, code, message: cause instanceof Error ? cause.message : String(cause) });
+    if (code.includes("permission-denied")) {
+      try {
+        const invitation = await getDoc(doc(db, "folderInvitations", `${folderId}_${uid}`));
+        if (invitation.exists() && invitation.data().status === "pending") return { access: null, failure: "pending" };
+        if (invitation.exists() && ["declined", "cancelled"].includes(invitation.data().status)) return { access: null, failure: "denied" };
+      } catch { /* Access denial remains the authoritative result. */ }
+      return { access: null, failure: "denied" };
+    }
+    return { access: null, failure: "error" };
+  }
+}
 export function subscribeSharedContributions(
   folderId: string,
   next: (items: ContributionWithExpenses[]) => void,

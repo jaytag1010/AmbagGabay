@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { ArrowLeft, Plus, Trash2, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
@@ -9,20 +9,19 @@ import { Field, SelectField } from "@/components/ui/Field";
 import { EmptyState, LoadingState, Notice } from "@/components/ui/Feedback";
 import { useAuth } from "@/hooks/useAuth";
 import { useCollectionData } from "@/hooks/useCollectionData";
+import { useSharedFolderAccess } from "@/hooks/useSharedFolderAccess";
 import {
   deleteSharedContribution,
-  getSharedFolder,
   requestFolderPeople,
   respondFolderPersonRequest,
   saveSharedContribution,
   subscribeSharedContributions,
-  subscribeSharedFolders,
   subscribeSharedPeople,
   subscribeFolderPersonRequests,
 } from "@/services/sharing";
 import { subscribeFriends } from "@/services/friends";
 import { subscribeFriendGroups } from "@/services/friendGroups";
-import type { ContributionWithExpenses, Friend, SharedFolder } from "@/types";
+import type { ContributionWithExpenses, Friend } from "@/types";
 import { contributionTotal, folderTotal, formatMoney } from "@/utils/money";
 import { formatDate } from "@/utils/format";
 type DraftItem = {
@@ -35,20 +34,15 @@ type DraftItem = {
 export default function SharedFolderPage() {
   const { folderId } = useParams<{ folderId: string }>(),
     auth = useAuth(),
-    uid = auth.currentUser!.uid;
+    uid = auth.currentUser!.uid,
+    accessState = useSharedFolderAccess(folderId, auth.currentUser!.uid),
+    access = accessState.access;
   const contributionSub = useCallback(
     (
       next: Parameters<typeof subscribeSharedContributions>[1],
       fail: Parameters<typeof subscribeSharedContributions>[2],
     ) => subscribeSharedContributions(folderId, next, fail),
     [folderId],
-  );
-  const membershipSub = useCallback(
-    (
-      next: Parameters<typeof subscribeSharedFolders>[1],
-      fail: Parameters<typeof subscribeSharedFolders>[2],
-    ) => subscribeSharedFolders(uid, next, fail),
-    [uid],
   );
   const peopleSub = useCallback(
     (
@@ -60,13 +54,11 @@ export default function SharedFolderPage() {
   const requestsSub = useCallback((next: Parameters<typeof subscribeFolderPersonRequests>[1], fail: Parameters<typeof subscribeFolderPersonRequests>[2]) => subscribeFolderPersonRequests(folderId, next, fail), [folderId]);
   const friendsSub = useCallback((next: Parameters<typeof subscribeFriends>[1], fail: Parameters<typeof subscribeFriends>[2]) => subscribeFriends(uid, next, fail), [uid]);
   const groupsSub = useCallback((next: Parameters<typeof subscribeFriendGroups>[1], fail: Parameters<typeof subscribeFriendGroups>[2]) => subscribeFriendGroups(uid, next, fail), [uid]);
-  const contributions = useCollectionData(contributionSub),
-    memberships = useCollectionData(membershipSub),
-    people = useCollectionData(peopleSub),
-    requests = useCollectionData(requestsSub),
+  const contributions = useCollectionData(access?.canRead ? contributionSub : null),
+    people = useCollectionData(access?.canRead ? peopleSub : null),
+    requests = useCollectionData(access?.canRead ? requestsSub : null),
     friends = useCollectionData(friendsSub),
     groups = useCollectionData(groupsSub),
-    [folder, setFolder] = useState<SharedFolder | null>(null),
     [error, setError] = useState<string | null>(null),
     [editing, setEditing] = useState<ContributionWithExpenses | "new" | null>(
       null,
@@ -78,15 +70,9 @@ export default function SharedFolderPage() {
     [proposing, setProposing] = useState(false),
     [selectedFriendIds, setSelectedFriendIds] = useState<string[]>([]),
     [busy, setBusy] = useState(false);
-  useEffect(() => {
-    getSharedFolder(folderId)
-      .then(setFolder)
-      .catch(() => setError("Unable to open shared folder."));
-  }, [folderId]);
-  const membership = memberships.items.find(
-      (item) => item.folder.id === folderId,
-    )?.membership,
-    canEdit = membership?.role === "owner" || membership?.role === "editor";
+  const folder = access?.folder || null,
+    membership = access?.membership,
+    canEdit = access?.canEdit || false;
   const pendingRequests = requests.items.filter((item) => item.status === "pending");
   const availableFriends = friends.items.filter((friend) => !friend.archived && !people.items.some((person) => person.linkedUserId && person.linkedUserId === (friend.id === "me" ? uid : friend.linkedUserId)));
   const toggleFriend = (id: string) => setSelectedFriendIds(values => values.includes(id) ? values.filter(value => value !== id) : [...values, id]);
@@ -168,10 +154,14 @@ export default function SharedFolderPage() {
       setBusy(false);
     }
   }
-  if (!folder || contributions.loading || memberships.loading || people.loading)
+  if (accessState.loading)
     return <LoadingState label="Opening shared folder…" />;
-  if (!membership)
-    return <Notice message="You no longer have access to this folder." />;
+  if (!access || !folder || !membership) {
+    const copy = accessState.failure === "not-found" ? ["Folder not found.", "The shared Folder may have been deleted."] : accessState.failure === "pending" ? ["This Folder invitation is still pending.", "Accept the invitation first to access the Folder."] : accessState.failure === "removed" ? ["You no longer have access to this Folder.", "The Owner may have removed your membership."] : accessState.failure === "timeout" ? ["This Folder is taking longer than expected to open.", "Check your connection, then try again."] : accessState.failure === "denied" ? ["You don't have access to this Folder.", "Your access could not be verified."] : ["We couldn't open this Folder.", "Your access could not be verified or the Folder could not be loaded."];
+    return <EmptyState title={copy[0]} description={copy[1]} action={<div className="row-actions"><Button onClick={accessState.retry}>Retry</Button><Link className="button button-secondary" href="/">Back to Home</Link></div>} />;
+  }
+  if (contributions.loading || people.loading)
+    return <LoadingState label="Loading Folder content…" />;
   return (
     <>
       <Link href="/" className="back-link">

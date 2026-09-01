@@ -8,7 +8,7 @@ service cloud.firestore {
     function sharedOwner(folderId) { return signedIn() && sharedFolder(folderId).data.ownerId == request.auth.uid; }
     function sharedOwnerAfter(folderId) { return signedIn() && getAfter(/databases/$(database)/documents/sharedFolders/$(folderId)).data.ownerId == request.auth.uid; }
     function sharedMember(folderId) { return signedIn() && exists(/databases/$(database)/documents/sharedFolders/$(folderId)/members/$(request.auth.uid)); }
-    function sharedEditor(folderId) { return sharedMember(folderId) && membership(folderId).data.role in ['owner','editor']; }
+    function sharedEditor(folderId) { return sharedOwner(folderId) || (sharedMember(folderId) && membership(folderId).data.role in ['owner','editor']); }
 
     match /users/{uid} {
       allow read: if isOwner(uid);
@@ -107,23 +107,23 @@ service cloud.firestore {
         allow update, delete: if sharedOwner(folderId) && memberId != sharedFolder(folderId).data.ownerId;
       }
       match /people/{personId} {
-        allow read: if sharedMember(folderId);
+        allow read: if sharedOwner(folderId) || sharedMember(folderId);
         allow create: if sharedOwner(folderId) || sharedOwnerAfter(folderId);
         allow update, delete: if sharedOwner(folderId);
       }
       match /personRequests/{requestId} {
-        allow read: if sharedMember(folderId);
+        allow read: if sharedOwner(folderId) || sharedMember(folderId);
         allow create: if sharedEditor(folderId) && request.resource.data.folderId == folderId && request.resource.data.proposerUid == request.auth.uid && request.resource.data.status == 'pending' && request.resource.data.people is list && request.resource.data.people.size() > 0;
         allow update: if sharedOwner(folderId) && resource.data.status == 'pending' && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','respondedAt','respondedBy']) && request.resource.data.status in ['approved','rejected'] && request.resource.data.respondedBy == request.auth.uid;
         allow delete: if false;
       }
-      match /settlements/{settlementId} { allow read: if sharedMember(folderId); allow write: if sharedEditor(folderId) || getAfter(/databases/$(database)/documents/sharedFolders/$(folderId)).data.ownerId == request.auth.uid; }
+      match /settlements/{settlementId} { allow read: if sharedOwner(folderId) || sharedMember(folderId); allow write: if sharedEditor(folderId) || getAfter(/databases/$(database)/documents/sharedFolders/$(folderId)).data.ownerId == request.auth.uid; }
       match /contributions/{contributionId} {
-        allow read: if sharedMember(folderId);
+        allow read: if sharedOwner(folderId) || sharedMember(folderId);
         allow create: if (sharedEditor(folderId) && request.resource.data.createdByUserId == request.auth.uid) || (getAfter(/databases/$(database)/documents/sharedFolders/$(folderId)).data.ownerId == request.auth.uid && (!request.resource.data.keys().hasAny(['createdByUserId']) || request.resource.data.createdByUserId == request.auth.uid));
         allow update: if sharedEditor(folderId) && ((!resource.data.keys().hasAny(['createdByUserId']) && !request.resource.data.keys().hasAny(['createdByUserId'])) || request.resource.data.createdByUserId == resource.data.createdByUserId);
         allow delete: if sharedEditor(folderId);
-        match /expenses/{expenseId} { allow read: if sharedMember(folderId); allow write: if sharedEditor(folderId) || getAfter(/databases/$(database)/documents/sharedFolders/$(folderId)).data.ownerId == request.auth.uid; }
+        match /expenses/{expenseId} { allow read: if sharedOwner(folderId) || sharedMember(folderId); allow write: if sharedEditor(folderId) || getAfter(/databases/$(database)/documents/sharedFolders/$(folderId)).data.ownerId == request.auth.uid; }
       }
     }
     match /folderInvitations/{invitationId} {
