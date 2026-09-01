@@ -54,6 +54,7 @@ export async function promotePrivateFolder(
     const parentSetup = writeBatch(db);
     parentSetup.set(target, {
       ...folder,
+      id,
       ownerId: uid,
       ownerNameSnapshot: ownerName,
       sourceFolderId: folder.id,
@@ -257,7 +258,7 @@ export function subscribeMemberships(
 export async function getSharedFolder(folderId: string) {
   const snapshot = await getDoc(doc(requireDb(), "sharedFolders", folderId));
   return snapshot.exists()
-    ? ({ id: snapshot.id, ...snapshot.data() } as SharedFolder)
+    ? ({ ...snapshot.data(), id: snapshot.id } as SharedFolder)
     : null;
 }
 export type SharedFolderAccessFailure = "not-found" | "pending" | "removed" | "denied" | "error";
@@ -275,11 +276,11 @@ export async function resolveSharedFolderAccess(folderId: string, uid: string): 
   try {
     const folderSnapshot = await getDoc(doc(db, "sharedFolders", folderId));
     if (!folderSnapshot.exists()) return { access: null, failure: "not-found" };
-    const folder = { id: folderSnapshot.id, ...folderSnapshot.data() } as SharedFolder;
+    const folder = { ...folderSnapshot.data(), id: folderSnapshot.id } as SharedFolder;
     if (folder.ownerId === uid) return { access: { folder, membership: { id: uid, userId: uid, role: "owner", displayNameSnapshot: folder.ownerNameSnapshot, joinedAt: folder.createdAt }, role: "owner", canRead: true, canEdit: true, canManageSharing: true }, failure: null };
     const memberSnapshot = await getDoc(doc(db, "sharedFolders", folderId, "members", uid));
     if (!memberSnapshot.exists()) return { access: null, failure: "removed" };
-    const membership = { id: memberSnapshot.id, ...memberSnapshot.data() } as FolderMembership;
+    const membership = { ...memberSnapshot.data(), id: memberSnapshot.id } as FolderMembership;
     if (membership.userId !== uid || !["editor", "viewer"].includes(membership.role)) return { access: null, failure: "denied" };
     return { access: { folder, membership, role: membership.role as "editor" | "viewer", canRead: true, canEdit: membership.role === "editor", canManageSharing: false }, failure: null };
   } catch (cause) {
