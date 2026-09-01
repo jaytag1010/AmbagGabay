@@ -103,7 +103,7 @@ service cloud.firestore {
       allow delete: if sharedOwner(folderId);
       match /members/{memberId} {
         allow read: if signedIn() && (request.auth.uid == memberId || resource.data.userId == request.auth.uid || sharedOwner(folderId));
-        allow create: if sharedOwner(folderId) || (request.auth.uid == memberId && request.resource.data.role == 'owner' && getAfter(/databases/$(database)/documents/sharedFolders/$(folderId)).data.ownerId == request.auth.uid) || (request.auth.uid == memberId && get(/databases/$(database)/documents/folderInvitations/$(folderId + '_' + memberId)).data.status == 'pending' && request.resource.data.role == get(/databases/$(database)/documents/folderInvitations/$(folderId + '_' + memberId)).data.role);
+        allow create: if sharedOwner(folderId) || (request.auth.uid == memberId && request.resource.data.role == 'owner' && getAfter(/databases/$(database)/documents/sharedFolders/$(folderId)).data.ownerId == request.auth.uid) || (request.auth.uid == memberId && request.resource.data.invitationId is string && getAfter(/databases/$(database)/documents/folderInvitations/$(request.resource.data.invitationId)).data.status == 'accepted' && getAfter(/databases/$(database)/documents/folderInvitations/$(request.resource.data.invitationId)).data.folderId == folderId && getAfter(/databases/$(database)/documents/folderInvitations/$(request.resource.data.invitationId)).data.recipientUid == memberId && request.resource.data.role == getAfter(/databases/$(database)/documents/folderInvitations/$(request.resource.data.invitationId)).data.role);
         allow update, delete: if sharedOwner(folderId) && memberId != sharedFolder(folderId).data.ownerId;
       }
       match /people/{personId} {

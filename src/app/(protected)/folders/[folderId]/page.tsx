@@ -408,7 +408,7 @@ export default function FolderDetailPage() {
                   shareRole,
                 );
                 setSharedFolderId(result.folderId);
-                setShareSuccess(result.reused?`An invitation to ${selected.name} is already pending. The notification was refreshed.`:`Invitation sent to ${selected.name}.`);
+                setShareSuccess(`Invitation sent to ${selected.name}.`);
                 setShareFriendId("");
               } catch (cause) {
                 if(process.env.NODE_ENV==="development")console.error("Folder invitation failed",cause);

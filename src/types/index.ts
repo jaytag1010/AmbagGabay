@@ -100,6 +100,7 @@ export interface FolderMembership {
   role: FolderRole;
   displayNameSnapshot: string;
   joinedAt: Timestamp;
+  invitationId?: string;
 }
 export interface SharedPerson {
   id: string;

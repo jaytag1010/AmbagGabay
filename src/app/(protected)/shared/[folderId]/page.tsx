@@ -24,6 +24,7 @@ import { subscribeFriendGroups } from "@/services/friendGroups";
 import type { ContributionWithExpenses, Friend } from "@/types";
 import { contributionTotal, folderTotal, formatMoney } from "@/utils/money";
 import { formatDate } from "@/utils/format";
+import { resolveFolderPersonLabel } from "@/utils/sharedIdentity";
 type DraftItem = {
   id: string;
   title: string;
@@ -85,9 +86,7 @@ export default function SharedFolderPage() {
   }
   const label = (id: string) => {
     const person = people.items.find((item) => item.id === id);
-    return person?.linkedUserId === uid
-      ? `Me (${auth.currentUser?.displayName || "User"})`
-      : person?.displayNameSnapshot || "Unknown";
+    return resolveFolderPersonLabel({ folder: folder!, person, currentUserUid: uid });
   };
   function open(value: ContributionWithExpenses | "new") {
     setEditing(value);

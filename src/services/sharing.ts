@@ -117,28 +117,18 @@ export async function inviteToFolder(
 ) {
   if (!friend.linkedUserId) throw new Error("Select a Friend with an accepted AmbagGabay account link.");
   if (friend.linkedUserId === uid) throw new Error("You already own this folder.");
-  const profile = { uid: friend.linkedUserId, displayName: friend.linkedDisplayName || friend.name };
+  const profile = { uid: friend.linkedUserId, displayName: friend.name };
   const folderId = "ownerId" in folder ? folder.id : await promotePrivateFolder(uid, folder, ownerName),
     db = requireDb(),
     member = await getDoc(
       doc(db, "sharedFolders", folderId, "members", profile.uid),
     );
   if (member.exists())
-    throw new Error("This user already has access to this folder.");
-  const invitationRef = doc(
-    db,
-    "folderInvitations",
-    `${folderId}_${profile.uid}`,
-  );
+    throw new Error(`${friend.name} already has access to this Folder.`);
   const notificationRef=doc(collection(db,"users",profile.uid,"notifications"));
-  const ownedInvitations=await shareStep("check-duplicate-invitation","folderInvitations",()=>getDocs(query(collection(db,"folderInvitations"),where("ownerId","==",uid)))),existingInvitation=ownedInvitations.docs.find(item=>item.id===invitationRef.id);
-  if(existingInvitation?.data().status==="pending"){
-    const delivery=writeBatch(db);
-    delivery.set(notificationRef,{type:"folder-invitation",title:"Folder Invitation",message:`${ownerName} invited you to ${folder.name} as ${existingInvitation.data().role}.`,actorUid:uid,recipientUid:profile.uid,recipientNameSnapshot:profile.displayName,folderInvitationId:invitationRef.id,read:false,createdAt:serverTimestamp()});
-    await shareStep("refresh-recipient-notification",`users/${profile.uid}/notifications`,()=>delivery.commit());
-    return {folderId,profile,reused:true};
-  }
-  if(existingInvitation?.data().status==="accepted")throw new Error(`${profile.displayName} already accepted an invitation to this Folder.`);
+  const ownedInvitations=await shareStep("check-pending-invitation","folderInvitations",()=>getDocs(query(collection(db,"folderInvitations"),where("ownerId","==",uid)))),pendingInvitation=ownedInvitations.docs.find(item=>item.data().folderId===folderId&&item.data().recipientUid===profile.uid&&item.data().status==="pending");
+  if(pendingInvitation)throw new Error(`An invitation to ${friend.name} is already pending.`);
+  const invitationRef = doc(collection(db, "folderInvitations"));
   const invitationBatch=writeBatch(db);
   invitationBatch.set(invitationRef, {
       folderId,
@@ -215,6 +205,7 @@ export async function respondInvitation(
         userId: uid,
         role: invitation.role,
         displayNameSnapshot: displayName,
+        invitationId: invitation.id,
         joinedAt: serverTimestamp(),
       });
       tx.set(doc(db, "users", uid, "sharedFolderMemberships", invitation.folderId), { userId: uid, folderId: invitation.folderId, role: invitation.role, updatedAt: serverTimestamp() });
@@ -577,6 +568,7 @@ export async function changeMemberRole(
   folder: SharedFolder,
   member: FolderMembership,
   role: "editor" | "viewer",
+  displayName = member.displayNameSnapshot,
 ) {
   if (member.role === "owner")
     throw new Error("The Owner role cannot be changed.");
@@ -586,7 +578,7 @@ export async function changeMemberRole(
   );
   await logActivity(uid, {
     action: "Member role changed",
-    description: `${member.displayNameSnapshot} · ${member.role} → ${role} · ${folder.name}`,
+    description: `${displayName} · ${member.role} → ${role} · ${folder.name}`,
     entityType: "folder",
     entityId: folder.id,
   });
@@ -595,6 +587,7 @@ export async function removeMember(
   uid: string,
   folder: SharedFolder,
   member: FolderMembership,
+  displayName = member.displayNameSnapshot,
 ) {
   if (member.role === "owner") throw new Error("The Owner cannot be removed.");
   const db = requireDb(), batch = writeBatch(db);
@@ -603,7 +596,7 @@ export async function removeMember(
   await batch.commit();
   await logActivity(uid, {
     action: "Member removed",
-    description: `${member.displayNameSnapshot} removed from ${folder.name}`,
+    description: `${displayName} removed from ${folder.name}`,
     entityType: "folder",
     entityId: folder.id,
   });
