@@ -4,6 +4,7 @@ import { useParams, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Pencil, Plus, Share2, Trash2 } from "lucide-react";
 import { FriendAvatar } from "@/components/ui/FriendAvatar";
+import { AmbaganSummary } from "@/components/contributions/AmbaganSummary";
 import { SettlePaymentsDialog } from "@/components/settlements/SettlePaymentsDialog";
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
@@ -463,6 +464,7 @@ export default function FolderDetailPage() {
                 </button>
               ))}
             </div>
+            <AmbaganSummary contribution={detail} labelFor={label} />
             <div className="dialog-actions">
               <Button variant="danger" disabled={deleting} onClick={remove}>
                 <Trash2 size={17} /> Delete
