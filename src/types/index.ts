@@ -79,6 +79,8 @@ export interface Contribution {
   updatedAt: Timestamp;
   createdByUserId?: string;
   createdByNameSnapshot?: string;
+  /** Folder-person id used as the per-Contribution settlement counterparty. */
+  settlementAnchorFriendId?: string;
 }
 export type FolderRole = "owner" | "editor" | "viewer";
 export interface PublicProfile {

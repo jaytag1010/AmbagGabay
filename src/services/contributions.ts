@@ -83,7 +83,7 @@ export async function saveContribution(
       date: Timestamp.fromDate(data.date),
       payerFriendId: data.payerFriendId,
       participantIds: data.participantIds,
-      ...(contributionId ? {} : { createdAt: now, createdByUserId: uid, createdByNameSnapshot: creatorName || "User" }),
+      ...(contributionId ? {} : { createdAt: now, createdByUserId: uid, createdByNameSnapshot: creatorName || "User", settlementAnchorFriendId: "me" }),
       updatedAt: now,
     },
     { merge: true },

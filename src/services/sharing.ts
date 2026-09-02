@@ -23,6 +23,7 @@ import type {
   Friend,
   SharedFolder,
   SharedPerson,
+  Settlement,
 } from "@/types";
 import { logActivity } from "@/services/activities";
 import { getPairNetBalance } from "@/utils/money";
@@ -297,11 +298,13 @@ export function subscribeSharedContributions(
     query(collection(requireDb(), "sharedFolders", folderId, "contributions")),
     async (snapshot) => {
       try {
+        const people = await getDocs(collection(requireDb(), "sharedFolders", folderId, "people"));
+        const personByUserId = new Map(people.docs.map(item => [item.data().linkedUserId, item.id]));
         next(
           await Promise.all(
             snapshot.docs.map(async (item) => {
               const expenses = await getDocs(collection(item.ref, "expenses"));
-              return {
+              const contribution = {
                 id: item.id,
                 ...item.data(),
                 expenses: expenses.docs.map(
@@ -309,6 +312,8 @@ export function subscribeSharedContributions(
                     ({ id: expense.id, ...expense.data() }) as Expense,
                 ),
               } as ContributionWithExpenses;
+              if (!contribution.settlementAnchorFriendId && contribution.createdByUserId) contribution.settlementAnchorFriendId = personByUserId.get(contribution.createdByUserId);
+              return contribution;
             }),
           ),
         );
@@ -322,6 +327,18 @@ export function subscribeSharedContributions(
     },
     onError,
   );
+}
+export function subscribeSharedSettlements(folderId: string, next: (items: Settlement[]) => void, onError: (error: Error) => void) {
+  return onSnapshot(collection(requireDb(), "sharedFolders", folderId, "settlements"), snapshot => next(snapshot.docs.map(item => ({ id: item.id, ...item.data() }) as Settlement)), onError);
+}
+export async function recordSharedSettlement(uid: string, folderId: string, input: { contributionId: string; fromFriendId: string; toFriendId: string; amount: number; contributionTitle: string; expectedPreviouslySettled?: number }) {
+  const db = requireDb(), id = `${input.contributionId}_${input.fromFriendId}_${input.toFriendId}`, ref = doc(db, "sharedFolders", folderId, "settlements", id);
+  await runTransaction(db, async transaction => {
+    const current = await transaction.get(ref), prior = current.exists() ? Number(current.data().amount || 0) : 0;
+    if (Math.round(prior * 100) !== Math.round(Number(input.expectedPreviouslySettled || 0) * 100)) throw new Error("This balance changed. Recalculate before settling.");
+    const now = serverTimestamp();
+    transaction.set(ref, { folderId, contributionId: input.contributionId, fromFriendId: input.fromFriendId, toFriendId: input.toFriendId, amount: prior + input.amount, source: "individual", executedByUserId: uid, date: now, createdAt: current.exists() ? current.data().createdAt : now, updatedAt: now }, { merge: true });
+  });
 }
 export function subscribeSharedPeople(
   folderId: string,
@@ -384,6 +401,8 @@ export async function saveSharedContribution(
       "Complete the contribution and add at least one expense item.",
     );
   const db = requireDb(),
+    people = await getDocs(collection(db, "sharedFolders", folderId, "people")),
+    settlementAnchorFriendId = people.docs.find(item => item.data().linkedUserId === uid)?.id || input.payerFriendId,
     ref = contributionId
       ? doc(db, "sharedFolders", folderId, "contributions", contributionId)
       : doc(collection(db, "sharedFolders", folderId, "contributions")),
@@ -405,6 +424,7 @@ export async function saveSharedContribution(
             createdAt: now,
             createdByUserId: uid,
             createdByNameSnapshot: userName,
+            settlementAnchorFriendId,
           }),
       updatedAt: now,
     },

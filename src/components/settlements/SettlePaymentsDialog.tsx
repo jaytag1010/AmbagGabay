@@ -20,12 +20,12 @@ type Entry = {
   folder: FolderFinancials;
   allocation: SettlementAllocation;
 };
-const pairTotals = (entries: Entry[]) => {
+const pairTotals = (entries: Entry[], currentPersonId = "me") => {
   const incoming = entries
-      .filter((e) => e.allocation.toFriendId === "me")
+      .filter((e) => e.allocation.toFriendId === currentPersonId)
       .reduce((s, e) => s + toCentavos(e.allocation.amount), 0),
     outgoing = entries
-      .filter((e) => e.allocation.fromFriendId === "me")
+      .filter((e) => e.allocation.fromFriendId === currentPersonId)
       .reduce((s, e) => s + toCentavos(e.allocation.amount), 0);
   return { incoming, outgoing, net: incoming - outgoing };
 };
@@ -40,6 +40,8 @@ export function SettlePaymentsDialog({
   folderId,
   preselectedFriendId,
   onComplete,
+  currentPersonId = "me",
+  recordAllocation,
 }: {
   open: boolean;
   onClose: () => void;
@@ -50,6 +52,8 @@ export function SettlePaymentsDialog({
   folderId?: string;
   preselectedFriendId?: string;
   onComplete?: () => Promise<void> | void;
+  currentPersonId?: string;
+  recordAllocation?: (allocation: SettlementAllocation) => Promise<void>;
 }) {
   const [people, setPeople] = useState<string[]>(
       preselectedFriendId ? [preselectedFriendId] : [],
@@ -70,15 +74,15 @@ export function SettlePaymentsDialog({
     () =>
       new Map(
         friends
-          .filter((friend) => friend.id !== "me" && !friend.archived)
+          .filter((friend) => friend.id !== currentPersonId && !friend.archived)
           .map((friend) => {
             const entries: Entry[] = scoped.flatMap((folder) =>
               contributionObligations(folder.contributions, folder.settlements)
                 .filter(
                   (item) =>
-                    (item.fromFriendId === "me" &&
+                    (item.fromFriendId === currentPersonId &&
                       item.toFriendId === friend.id) ||
-                    (item.toFriendId === "me" &&
+                    (item.toFriendId === currentPersonId &&
                       item.fromFriendId === friend.id),
                 )
                 .map((item) => ({
@@ -105,7 +109,7 @@ export function SettlePaymentsDialog({
           })
           .filter(([, entries]) => entries.length),
       ),
-    [friends, scoped],
+    [currentPersonId, friends, scoped],
   );
   const candidates = friends.filter((friend) => byPerson.has(friend.id));
   const chosen = (id: string) =>
@@ -136,12 +140,12 @@ export function SettlePaymentsDialog({
   async function finalize(personId: string) {
     const person = friends.find((item) => item.id === personId),
       entries = chosen(personId),
-      { net } = pairTotals(entries);
+      { net } = pairTotals(entries, currentPersonId);
     if (!person || !entries.length || !net) return;
     setBusy((v) => ({ ...v, [personId]: true }));
     setMessage(null);
     try {
-      const latestFinancials = await getFinancialOverview(uid);
+      const latestFinancials = recordAllocation ? financials : await getFinancialOverview(uid);
       const refreshedEntries = entries.flatMap((entry) => {
         const latestFolder = latestFinancials.find(
           (item) => item.folder.id === entry.allocation.folderId,
@@ -168,13 +172,13 @@ export function SettlePaymentsDialog({
           },
         ];
       });
-      const currentNet = pairTotals(refreshedEntries).net;
+      const currentNet = pairTotals(refreshedEntries, currentPersonId).net;
       if (refreshedEntries.length !== entries.length || currentNet !== net) {
         throw new Error(
           `Balance changed while this settlement was open. Previous amount: ${formatMoney(Math.abs(net) / 100)}. Current amount: ${formatMoney(Math.abs(currentNet) / 100)}. Review the updated balance before marking it ${net > 0 ? "received" : "paid"}.`,
         );
       }
-      if (net < 0 && person.linkedUserId) {
+      if (!recordAllocation && net < 0 && person.linkedUserId) {
         await requestPayment({
           requesterUid: uid,
           approverUid: person.linkedUserId,
@@ -185,7 +189,10 @@ export function SettlePaymentsDialog({
         setCompleted((v) => ({ ...v, [personId]: "Pending confirmation" }));
       } else {
         for (const item of entries)
-          await recordSettlement(uid, {
+          await (recordAllocation ? recordAllocation({
+            ...item.allocation,
+            expectedPreviouslySettled: item.folder.settlements.find((s) => s.contributionId === item.allocation.contributionId && s.fromFriendId === item.allocation.fromFriendId && s.toFriendId === item.allocation.toFriendId)?.amount || 0,
+          }) : recordSettlement(uid, {
             ...item.allocation,
             expectedPreviouslySettled:
               item.folder.settlements.find(
@@ -200,8 +207,8 @@ export function SettlePaymentsDialog({
                 : "nonlinked-executory",
             description: `Settlement recorded · ${item.allocation.contributionTitle}`,
             executedByUserId: uid,
-          });
-        if (person.linkedUserId && net > 0)
+          }));
+        if (!recordAllocation && person.linkedUserId && net > 0)
           await notifyReceived(
             uid,
             person.linkedUserId,
@@ -226,11 +233,11 @@ export function SettlePaymentsDialog({
   }
   const selectedEntries = people.flatMap((id) => chosen(id)),
     sessionIncoming = people.reduce(
-      (sum, id) => sum + pairTotals(chosen(id)).incoming,
+      (sum, id) => sum + pairTotals(chosen(id), currentPersonId).incoming,
       0,
     ),
     sessionOutgoing = people.reduce(
-      (sum, id) => sum + pairTotals(chosen(id)).outgoing,
+      (sum, id) => sum + pairTotals(chosen(id), currentPersonId).outgoing,
       0,
     );
   return (
@@ -270,7 +277,7 @@ export function SettlePaymentsDialog({
           </div>
           <div className="settlement-people">
             {candidates.map((person) => {
-              const totals = pairTotals(byPerson.get(person.id) || []);
+              const totals = pairTotals(byPerson.get(person.id) || [], currentPersonId);
               return (
                 <label key={person.id}>
                   <input
@@ -304,7 +311,7 @@ export function SettlePaymentsDialog({
           const person = friends.find((p) => p.id === id)!,
             entries = byPerson.get(id) || [],
             picked = chosen(id),
-            totals = pairTotals(picked);
+            totals = pairTotals(picked, currentPersonId);
           return (
             <section className="settlement-person-group" key={id}>
               <div className="section-heading">
@@ -345,7 +352,7 @@ export function SettlePaymentsDialog({
                       <strong>{entry.allocation.contributionTitle}</strong>
                       <small>{entry.folder.folder.name}</small>
                       <small>
-                        {entry.allocation.fromFriendId === "me"
+                        {entry.allocation.fromFriendId === currentPersonId
                           ? `You need to pay ${formatMoney(entry.allocation.amount)}`
                           : `You should receive ${formatMoney(entry.allocation.amount)}`}
                       </small>
@@ -354,9 +361,10 @@ export function SettlePaymentsDialog({
                       className={moneyDirectionClass(
                         entry.allocation.fromFriendId,
                         entry.allocation.toFriendId,
+                        currentPersonId,
                       )}
                     >
-                      {entry.allocation.fromFriendId === "me" ? "−" : "+"}
+                      {entry.allocation.fromFriendId === currentPersonId ? "−" : "+"}
                       {formatMoney(entry.allocation.amount)}
                     </strong>
                   </label>
@@ -412,7 +420,7 @@ export function SettlePaymentsDialog({
             {people.map((id) => {
               const person = friends.find((p) => p.id === id)!,
                 entries = chosen(id),
-                { net } = pairTotals(entries);
+                { net } = pairTotals(entries, currentPersonId);
               if (!entries.length) return null;
               return (
                 <article className="settlement-result-card" key={id}>
@@ -428,7 +436,7 @@ export function SettlePaymentsDialog({
                         <span>
                           {item.allocation.contributionTitle}
                           <small>
-                            {item.allocation.fromFriendId === "me"
+                            {item.allocation.fromFriendId === currentPersonId
                               ? `You → ${person.name}`
                               : `${person.name} → You`}
                           </small>
@@ -437,9 +445,10 @@ export function SettlePaymentsDialog({
                           className={moneyDirectionClass(
                             item.allocation.fromFriendId,
                             item.allocation.toFriendId,
+                            currentPersonId,
                           )}
                         >
-                          {item.allocation.fromFriendId === "me" ? "−" : "+"}
+                          {item.allocation.fromFriendId === currentPersonId ? "−" : "+"}
                           {formatMoney(item.allocation.amount)}
                         </strong>
                       </div>

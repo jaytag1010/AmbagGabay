@@ -5,6 +5,7 @@ import { useCallback, useState } from "react";
 import { ArrowLeft, Plus, Trash2, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
+import { SettlePaymentsDialog } from "@/components/settlements/SettlePaymentsDialog";
 import { Field, SelectField } from "@/components/ui/Field";
 import { EmptyState, LoadingState, Notice } from "@/components/ui/Feedback";
 import { useAuth } from "@/hooks/useAuth";
@@ -15,14 +16,16 @@ import {
   requestFolderPeople,
   respondFolderPersonRequest,
   saveSharedContribution,
+  recordSharedSettlement,
   subscribeSharedContributions,
+  subscribeSharedSettlements,
   subscribeSharedPeople,
   subscribeFolderPersonRequests,
 } from "@/services/sharing";
 import { subscribeFriends } from "@/services/friends";
 import { subscribeFriendGroups } from "@/services/friendGroups";
-import type { ContributionWithExpenses, Friend } from "@/types";
-import { contributionTotal, folderTotal, formatMoney } from "@/utils/money";
+import type { ContributionWithExpenses, FolderFinancials, Friend } from "@/types";
+import { calculateBalances, contributionTotal, effectiveExpensePayer, folderTotal, formatMoney } from "@/utils/money";
 import { formatDate } from "@/utils/format";
 import { resolveFolderPersonLabel } from "@/utils/sharedIdentity";
 type DraftItem = {
@@ -52,11 +55,13 @@ export default function SharedFolderPage() {
     ) => subscribeSharedPeople(folderId, next, fail),
     [folderId],
   );
+  const settlementsSub = useCallback((next: Parameters<typeof subscribeSharedSettlements>[1], fail: Parameters<typeof subscribeSharedSettlements>[2]) => subscribeSharedSettlements(folderId, next, fail), [folderId]);
   const requestsSub = useCallback((next: Parameters<typeof subscribeFolderPersonRequests>[1], fail: Parameters<typeof subscribeFolderPersonRequests>[2]) => subscribeFolderPersonRequests(folderId, next, fail), [folderId]);
   const friendsSub = useCallback((next: Parameters<typeof subscribeFriends>[1], fail: Parameters<typeof subscribeFriends>[2]) => subscribeFriends(uid, next, fail), [uid]);
   const groupsSub = useCallback((next: Parameters<typeof subscribeFriendGroups>[1], fail: Parameters<typeof subscribeFriendGroups>[2]) => subscribeFriendGroups(uid, next, fail), [uid]);
   const contributions = useCollectionData(access?.canRead ? contributionSub : null),
     people = useCollectionData(access?.canRead ? peopleSub : null),
+    settlements = useCollectionData(access?.canRead ? settlementsSub : null),
     requests = useCollectionData(access?.canRead ? requestsSub : null),
     friends = useCollectionData(friendsSub),
     groups = useCollectionData(groupsSub),
@@ -71,10 +76,16 @@ export default function SharedFolderPage() {
     [proposing, setProposing] = useState(false),
     [selectedFriendIds, setSelectedFriendIds] = useState<string[]>([]),
     [busy, setBusy] = useState(false);
+  const [tab, setTab] = useState<"contributions" | "expenses" | "people" | "summary">("contributions"),
+    [settling, setSettling] = useState(false);
   const folder = access?.folder || null,
     membership = access?.membership,
     canEdit = access?.canEdit || false;
   const pendingRequests = requests.items.filter((item) => item.status === "pending");
+  const currentPersonId = people.items.find(item => item.linkedUserId === uid)?.id || (folder?.ownerId === uid ? "me" : ""),
+    balances = calculateBalances(contributions.items, settlements.items),
+    currentBalance = balances.find(item => item.friendId === currentPersonId),
+    settlementFriends = people.items.map(person => ({ id: person.id, name: labelForPerson(person.id), isMe: person.id === currentPersonId, archived: false, linkedUserId: person.linkedUserId || null })) as Friend[];
   const availableFriends = friends.items.filter((friend) => !friend.archived && !people.items.some((person) => person.linkedUserId && person.linkedUserId === (friend.id === "me" ? uid : friend.linkedUserId)));
   const toggleFriend = (id: string) => setSelectedFriendIds(values => values.includes(id) ? values.filter(value => value !== id) : [...values, id]);
   const selectGroup = (friendIds: string[]) => setSelectedFriendIds(values => [...new Set([...values, ...friendIds.filter(id => availableFriends.some(friend => friend.id === id))])]);
@@ -88,6 +99,7 @@ export default function SharedFolderPage() {
     const person = people.items.find((item) => item.id === id);
     return resolveFolderPersonLabel({ folder: folder!, person, currentUserUid: uid });
   };
+  function labelForPerson(id: string) { const person = people.items.find(item => item.id === id); return folder && person ? resolveFolderPersonLabel({ folder, person, currentUserUid: uid }) : "Unknown"; }
   function open(value: ContributionWithExpenses | "new") {
     setEditing(value);
     if (value === "new") {
@@ -159,7 +171,7 @@ export default function SharedFolderPage() {
     const copy = accessState.failure === "not-found" ? ["Folder not found.", "The shared Folder may have been deleted."] : accessState.failure === "pending" ? ["This Folder invitation is still pending.", "Accept the invitation first to access the Folder."] : accessState.failure === "removed" ? ["You no longer have access to this Folder.", "The Owner may have removed your membership."] : accessState.failure === "timeout" ? ["This Folder is taking longer than expected to open.", "Check your connection, then try again."] : accessState.failure === "denied" ? ["You don't have access to this Folder.", "Your access could not be verified."] : ["We couldn't open this Folder.", "Your access could not be verified or the Folder could not be loaded."];
     return <EmptyState title={copy[0]} description={copy[1]} action={<div className="row-actions"><Button onClick={accessState.retry}>Retry</Button><Link className="button button-secondary" href="/">Back to Home</Link></div>} />;
   }
-  if (contributions.loading || people.loading)
+  if (contributions.loading || people.loading || settlements.loading)
     return <LoadingState label="Loading Folder content…" />;
   return (
     <>
@@ -185,13 +197,14 @@ export default function SharedFolderPage() {
             Manage Sharing
           </Link>
         )}
+        <Button variant="secondary" disabled={!canEdit} onClick={() => setSettling(true)}>{canEdit ? "Settle Payments" : "Settle Payments · Read only"}</Button>
         {canEdit && (
           <Button onClick={() => open("new")}>
             <Plus size={17} /> Add Contribution
           </Button>
         )}
       </header>
-      <Notice message={contributions.error || people.error || error} />
+      <Notice message={contributions.error || people.error || settlements.error || error} />
       {canEdit && (
         <section className="panel people-request-panel">
           <div className="section-heading"><div><h2>Folder People</h2><p>Editors may propose personal friends. The owner approves them before they can be used.</p></div><Button variant="secondary" onClick={() => setProposing(true)}><UserPlus size={17} /> Propose People</Button></div>
@@ -199,18 +212,9 @@ export default function SharedFolderPage() {
           {membership.role !== "owner" && pendingRequests.some(request => request.proposerUid === uid) && <small>Your pending proposals are awaiting the owner’s review.</small>}
         </section>
       )}
-      <section className="summary-grid">
-        <article className="metric">
-          <span>Total Expenses</span>
-          <strong>{formatMoney(folderTotal(contributions.items))}</strong>
-        </article>
-        <article className="metric">
-          <span>Contributions</span>
-          <strong>{contributions.items.length}</strong>
-        </article>
-      </section>
-      <h2 className="section-title">Contributions</h2>
-      {!contributions.items.length ? (
+      <div className="tabs" role="tablist">{(["contributions","expenses","people","summary"] as const).map(value => <button role="tab" aria-selected={tab === value} className={tab === value ? "active" : ""} onClick={() => setTab(value)} key={value}>{value[0].toUpperCase() + value.slice(1)}</button>)}</div>
+      <section className="tab-panel">
+      {tab === "contributions" && (!contributions.items.length ? (
         <EmptyState
           title="No contributions yet"
           description="Shared contributions will appear here."
@@ -239,7 +243,12 @@ export default function SharedFolderPage() {
             </article>
           ))}
         </div>
-      )}
+      ))}
+      {tab === "expenses" && (!contributions.items.length ? <EmptyState title="No expenses yet" description="Expense items will appear after a Contribution is added." /> : <div className="contribution-expense-groups">{contributions.items.map(contribution => <article className="contribution-expense-group" key={contribution.id}><header><div><h2 className="contribution-title">{contribution.title}</h2><p>{formatDate(contribution.date)}</p></div><strong>{formatMoney(contributionTotal(contribution))}</strong></header><div className="grouped-expense-list">{contribution.expenses.map(expense => <div className="grouped-expense-row" key={expense.id}><span><strong>{expense.title}</strong><small>Paid by {label(effectiveExpensePayer(contribution, expense))} · {expense.participantIds.length} people</small></span><strong>{formatMoney(expense.amount)}</strong></div>)}</div></article>)}</div>)}
+      {tab === "people" && (!balances.length ? <EmptyState title="No balances yet" description="Balances will appear after shared expenses are recorded." /> : <div className="list">{balances.map(item => <article className="data-row" key={item.friendId}><div><h2>{label(item.friendId)}</h2><p>Paid {formatMoney(item.paid)} · Share {formatMoney(item.share)}</p></div><strong className={item.balance > 0 ? "money-incoming" : item.balance < 0 ? "money-outgoing" : "money-neutral"}>{item.balance > 0 ? `To receive ${formatMoney(item.balance)}` : item.balance < 0 ? `Owes ${formatMoney(-item.balance)}` : "Settled"}</strong></article>)}</div>)}
+      {tab === "summary" && <div className="summary-grid"><article className="metric"><span>Total Expenses</span><strong>{formatMoney(folderTotal(contributions.items))}</strong></article><article className="metric"><span>Contributions</span><strong>{contributions.items.length}</strong></article><article className="metric"><span>You Paid</span><strong>{formatMoney(currentBalance?.paid || 0)}</strong></article><article className="metric"><span>Your Share</span><strong>{formatMoney(currentBalance?.share || 0)}</strong></article><article className="metric"><span>Current Balance</span><strong className={(currentBalance?.balance || 0) >= 0 ? "money-incoming" : "money-outgoing"}>{formatMoney(Math.abs(currentBalance?.balance || 0))}</strong></article></div>}
+      </section>
+      {currentPersonId && <SettlePaymentsDialog open={settling} onClose={() => setSettling(false)} uid={uid} userName={auth.currentUser?.displayName || "User"} friends={settlementFriends} financials={[{ folder, contributions: contributions.items, settlements: settlements.items } as FolderFinancials]} folderId={folder.id} currentPersonId={currentPersonId} recordAllocation={allocation => recordSharedSettlement(uid, folder.id, allocation)} />}
       <Dialog
         open={proposing}
         title="Propose People"
