@@ -339,6 +339,7 @@ export async function recordSharedSettlement(uid: string, folderId: string, inpu
     const now = serverTimestamp();
     transaction.set(ref, { folderId, contributionId: input.contributionId, fromFriendId: input.fromFriendId, toFriendId: input.toFriendId, amount: prior + input.amount, source: "individual", executedByUserId: uid, date: now, createdAt: current.exists() ? current.data().createdAt : now, updatedAt: now }, { merge: true });
   });
+  await logActivity(uid, { action: "Shared payment settled", description: `Settled ${input.contributionTitle}`, entityType: "settlement", entityId: id, folderId });
 }
 export function subscribeSharedPeople(
   folderId: string,

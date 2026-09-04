@@ -7,15 +7,18 @@ import { Dialog } from "@/components/ui/Dialog";
 import { EmptyState, LoadingState, Notice } from "@/components/ui/Feedback";
 import { Field, SelectField } from "@/components/ui/Field";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { SettlePaymentsDialog } from "@/components/settlements/SettlePaymentsDialog";
 import { useAuth } from "@/hooks/useAuth";
 import { useCollectionData } from "@/hooks/useCollectionData";
 import { usePersistentSort } from "@/hooks/usePersistentSort";
-import { getFinancialOverview } from "@/services/financials";
+import { getAccessibleFinancialOverview } from "@/services/financials";
+import { recordSettlement } from "@/services/settlements";
 import {
   backfillSharedFolderMemberships,
   respondInvitation,
   subscribeInvitations,
   subscribeSharedFolders,
+  recordSharedSettlement,
 } from "@/services/sharing";
 import { subscribeFriendGroups } from "@/services/friendGroups";
 import { subscribeFriends } from "@/services/friends";
@@ -25,7 +28,7 @@ import {
   subscribeFolders,
   updateFolder,
 } from "@/services/folders";
-import type { Folder, FolderFinancials, Friend } from "@/types";
+import type { Folder, FolderFinancials, Friend, SharedFolder } from "@/types";
 import { formatDate } from "@/utils/format";
 import { folderTotal, formatMoney } from "@/utils/money";
 import { alpha, folderMetrics, millis } from "@/utils/sortMetrics";
@@ -80,20 +83,21 @@ export default function DashboardPage() {
     [editing, setEditing] = useState<Folder | "new" | null>(null),
     [deleting, setDeleting] = useState<Folder | null>(null),
     [busy, setBusy] = useState(false),
-    [message, setMessage] = useState<string | null>(null),[selectedPeople,setSelectedPeople]=useState<string[]>([]),[manualPeople,setManualPeople]=useState<string[]>([]),[selectedGroup,setSelectedGroup]=useState(""),[addingFriends,setAddingFriends]=useState(false),[friendDraft,setFriendDraft]=useState<string[]>([]);
+    [message, setMessage] = useState<string | null>(null),[selectedPeople,setSelectedPeople]=useState<string[]>([]),[manualPeople,setManualPeople]=useState<string[]>([]),[selectedGroup,setSelectedGroup]=useState(""),[addingFriends,setAddingFriends]=useState(false),[friendDraft,setFriendDraft]=useState<string[]>([]),[settling,setSettling]=useState(false);
   useEffect(()=>{if(!editing)return;const folder=editing==="new"?null:editing,groupId=folder?.defaultFriendGroupId||"",groupIds=groups.items.find(group=>group.id===groupId)?.friendIds||[],people=folder?.participantFriendIds||groupIds;setSelectedGroup(groupId);setSelectedPeople([...new Set(people.filter(id=>id!=="me"))]);setManualPeople(people.filter(id=>!groupIds.includes(id)&&id!=="me"))},[editing,groups.items]);
   useEffect(() => {
     backfillSharedFolderMemberships(uid).catch(() => setMessage("Unable to refresh shared-folder access."));
   }, [uid]);
   useEffect(() => {
-    getFinancialOverview(uid)
+    getAccessibleFinancialOverview(uid)
       .then(setFinancials)
       .catch(() => setMessage("Unable to load folder totals."));
-  }, [uid, folders.items.length]);
+  }, [uid, folders.items.length, shared.items.length]);
   const [sort, setSort] = usePersistentSort<FolderSort>("folders", "updated");
+  const displayFinancials:FolderFinancials[]=financials.map(item=>{const source=(item.folder as SharedFolder).sourceFolderId;return source?{...item,folder:{...item.folder,id:source}}:item});
   const sortedFolders = [...folders.items].sort((a, b) => {
-    const am = folderMetrics(a.id, financials),
-      bm = folderMetrics(b.id, financials),
+    const am = folderMetrics(a.id, displayFinancials),
+      bm = folderMetrics(b.id, displayFinancials),
       tie = alpha(a, b);
     switch (sort) {
       case "newest":
@@ -166,6 +170,7 @@ export default function DashboardPage() {
             <Button variant="secondary" onClick={() => setEditing("new")}>
               <Plus size={18} /> New folder
             </Button>
+            <Button variant="secondary" onClick={() => setSettling(true)}>Settle Payments</Button>
           </div>
         }
       />
@@ -266,7 +271,7 @@ export default function DashboardPage() {
       ) : (
         <div className="folder-grid">
           {sortedFolders.map((folder) => {
-            const data = financials.find(
+            const data = displayFinancials.find(
               (item) => item.folder.id === folder.id,
             );
             const promoted = shared.items.find(
@@ -417,6 +422,7 @@ export default function DashboardPage() {
           </div>
         </form>
       </Dialog>
+      <SettlePaymentsDialog open={settling} onClose={()=>setSettling(false)} uid={uid} userName={currentUser?.displayName||"User"} friends={friends.items} financials={financials} refreshFinancials={()=>getAccessibleFinancialOverview(uid)} recordAllocation={async allocation=>{if(allocation.ledger==="shared")await recordSharedSettlement(uid,allocation.folderId,{...allocation,fromFriendId:allocation.storedFromFriendId||allocation.fromFriendId,toFriendId:allocation.storedToFriendId||allocation.toFriendId});else await recordSettlement(uid,{...allocation,source:"nonlinked-executory",description:`Settled ${allocation.contributionTitle} in ${allocation.folderName||"Folder"}`,executedByUserId:uid});}} onComplete={async()=>setFinancials(await getAccessibleFinancialOverview(uid))}/>
       <Dialog open={addingFriends} title="Add Friends" onClose={()=>setAddingFriends(false)}><div className="friend-selector">{friends.items.filter(friend=>!friend.isMe&&!friend.archived).map(friend=><label key={friend.id}><input type="checkbox" checked={friendDraft.includes(friend.id)} onChange={()=>setFriendDraft(values=>values.includes(friend.id)?values.filter(id=>id!==friend.id):[...values,friend.id])}/><span>{friend.name}</span></label>)}</div><div className="dialog-actions"><Button variant="secondary" onClick={()=>setAddingFriends(false)}>Cancel</Button><span/><Button onClick={()=>{setSelectedPeople([...new Set(friendDraft)]);const groupIds=groups.items.find(group=>group.id===selectedGroup)?.friendIds||[];setManualPeople(friendDraft.filter(id=>!groupIds.includes(id)));setAddingFriends(false)}}>Add Selected</Button></div></Dialog>
       <Dialog
         open={!!deleting}

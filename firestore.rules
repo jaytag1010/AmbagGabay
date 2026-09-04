@@ -117,7 +117,15 @@ service cloud.firestore {
         allow update: if sharedOwner(folderId) && resource.data.status == 'pending' && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','respondedAt','respondedBy']) && request.resource.data.status in ['approved','rejected'] && request.resource.data.respondedBy == request.auth.uid;
         allow delete: if false;
       }
-      match /settlements/{settlementId} { allow read: if sharedOwner(folderId) || sharedMember(folderId); allow write: if sharedEditor(folderId) || getAfter(/databases/$(database)/documents/sharedFolders/$(folderId)).data.ownerId == request.auth.uid; }
+      match /settlements/{settlementId} {
+        allow read: if sharedOwner(folderId) || sharedMember(folderId);
+        allow write: if sharedEditor(folderId) || getAfter(/databases/$(database)/documents/sharedFolders/$(folderId)).data.ownerId == request.auth.uid
+          || (signedIn() && request.resource.data.requestId is string
+            && getAfter(/databases/$(database)/documents/settlementRequests/$(request.resource.data.requestId)).data.status == 'approved'
+            && getAfter(/databases/$(database)/documents/settlementRequests/$(request.resource.data.requestId)).data.approverUid == request.auth.uid
+            && getAfter(/databases/$(database)/documents/settlementRequests/$(request.resource.data.requestId)).data.requesterUid == request.resource.data.executedByUserId
+            && request.resource.data.folderId == folderId);
+      }
       match /contributions/{contributionId} {
         allow read: if sharedOwner(folderId) || sharedMember(folderId);
         allow create: if (sharedEditor(folderId) && request.resource.data.createdByUserId == request.auth.uid) || (getAfter(/databases/$(database)/documents/sharedFolders/$(folderId)).data.ownerId == request.auth.uid && (!request.resource.data.keys().hasAny(['createdByUserId']) || request.resource.data.createdByUserId == request.auth.uid));

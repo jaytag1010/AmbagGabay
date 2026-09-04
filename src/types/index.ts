@@ -181,6 +181,7 @@ export interface SettlementDirection {
 export interface ContributionObligation extends SettlementDirection {
   contributionId: string;
   contributionTitle: string;
+  folderName?: string;
   contributionDate: Timestamp;
   grossAmount: number;
   settledAmount: number;
@@ -189,6 +190,10 @@ export interface FolderFinancials {
   folder: Folder;
   contributions: ContributionWithExpenses[];
   settlements: Settlement[];
+  settlementContext?: {
+    kind: "private" | "shared";
+    personIds?: Record<string, string>;
+  };
 }
 export interface Settlement {
   id: string;
@@ -219,7 +224,11 @@ export interface SettlementAllocation {
   toFriendId: string;
   amount: number;
   contributionTitle: string;
+  folderName?: string;
   expectedPreviouslySettled?: number;
+  ledger?: "private" | "shared";
+  storedFromFriendId?: string;
+  storedToFriendId?: string;
 }
 export interface SettlementRequest {
   id: string;

@@ -2,7 +2,7 @@
 import { useMemo, useState } from "react";
 import { Dialog } from "@/components/ui/Dialog";
 import { Button } from "@/components/ui/Button";
-import { Notice } from "@/components/ui/Feedback";
+import { EmptyState, Notice } from "@/components/ui/Feedback";
 import { PayeePaymentMethods } from "@/components/payments/PaymentMethods";
 import type { FolderFinancials, Friend, SettlementAllocation } from "@/types";
 import {
@@ -42,6 +42,8 @@ export function SettlePaymentsDialog({
   onComplete,
   currentPersonId = "me",
   recordAllocation,
+  refreshFinancials,
+  directSettlement = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -54,6 +56,8 @@ export function SettlePaymentsDialog({
   onComplete?: () => Promise<void> | void;
   currentPersonId?: string;
   recordAllocation?: (allocation: SettlementAllocation) => Promise<void>;
+  refreshFinancials?: () => Promise<FolderFinancials[]>;
+  directSettlement?: boolean;
 }) {
   const [people, setPeople] = useState<string[]>(
       preselectedFriendId ? [preselectedFriendId] : [],
@@ -95,6 +99,10 @@ export function SettlePaymentsDialog({
                     toFriendId: item.toFriendId,
                     amount: item.amount,
                     contributionTitle: item.contributionTitle,
+                    folderName: folder.folder.name,
+                    ledger: folder.settlementContext?.kind || "private",
+                    storedFromFriendId: folder.settlementContext?.personIds?.[item.fromFriendId] || item.fromFriendId,
+                    storedToFriendId: folder.settlementContext?.personIds?.[item.toFriendId] || item.toFriendId,
                     expectedPreviouslySettled:
                       folder.settlements.find(
                         (s) =>
@@ -145,7 +153,7 @@ export function SettlePaymentsDialog({
     setBusy((v) => ({ ...v, [personId]: true }));
     setMessage(null);
     try {
-      const latestFinancials = recordAllocation ? financials : await getFinancialOverview(uid);
+      const latestFinancials = refreshFinancials ? await refreshFinancials() : recordAllocation ? financials : await getFinancialOverview(uid);
       const refreshedEntries = entries.flatMap((entry) => {
         const latestFolder = latestFinancials.find(
           (item) => item.folder.id === entry.allocation.folderId,
@@ -178,7 +186,7 @@ export function SettlePaymentsDialog({
           `Balance changed while this settlement was open. Previous amount: ${formatMoney(Math.abs(net) / 100)}. Current amount: ${formatMoney(Math.abs(currentNet) / 100)}. Review the updated balance before marking it ${net > 0 ? "received" : "paid"}.`,
         );
       }
-      if (!recordAllocation && net < 0 && person.linkedUserId) {
+      if (!directSettlement && net < 0 && person.linkedUserId) {
         await requestPayment({
           requesterUid: uid,
           approverUid: person.linkedUserId,
@@ -208,7 +216,7 @@ export function SettlePaymentsDialog({
             description: `Settlement recorded · ${item.allocation.contributionTitle}`,
             executedByUserId: uid,
           }));
-        if (!recordAllocation && person.linkedUserId && net > 0)
+        if (!directSettlement && person.linkedUserId && net > 0)
           await notifyReceived(
             uid,
             person.linkedUserId,
@@ -240,6 +248,7 @@ export function SettlePaymentsDialog({
       (sum, id) => sum + pairTotals(chosen(id), currentPersonId).outgoing,
       0,
     );
+  if (!candidates.length) return <Dialog open={open} wide title="Settle Payments" onClose={reset}><EmptyState title="No outstanding payments to settle" description="All accessible Contribution relationships are currently settled." /></Dialog>;
   return (
     <Dialog open={open} wide title="Settle Payments" onClose={reset}>
       <div className="settle-workflow">
@@ -311,13 +320,14 @@ export function SettlePaymentsDialog({
           const person = friends.find((p) => p.id === id)!,
             entries = byPerson.get(id) || [],
             picked = chosen(id),
-            totals = pairTotals(picked, currentPersonId);
+            totals = pairTotals(picked, currentPersonId),
+            grouped = [...entries.reduce((map, entry) => { const key=entry.folder.folder.id, group=map.get(key)||{folder:entry.folder.folder,entries:[] as Entry[]};group.entries.push(entry);map.set(key,group);return map;},new Map<string,{folder:FolderFinancials["folder"];entries:Entry[]}>()).values()];
           return (
             <section className="settlement-person-group" key={id}>
               <div className="section-heading">
                 <div>
                   <h3>{person.name}</h3>
-                  <p>{picked.length} selected</p>
+                  <p>{new Set(picked.map(entry=>entry.folder.folder.id)).size} folders · {picked.length} Contributions selected</p>
                 </div>
                 <Button
                   variant="ghost"
@@ -333,7 +343,7 @@ export function SettlePaymentsDialog({
                 </Button>
               </div>
               <div className="settlement-contributions">
-                {entries.map((entry) => (
+                {grouped.map(group => <section className="settlement-folder-group" key={group.folder.id}><div className="settlement-folder-heading"><strong>{group.folder.name}</strong><Button variant="ghost" onClick={()=>{setSelected(value=>({...value,[id]:[...new Set([...(value[id]||[]),...group.entries.map(entry=>entry.key)])]}));setCalculated(false)}}>Select Folder</Button></div>{group.entries.map((entry) => (
                   <label key={entry.key}>
                     <input
                       type="checkbox"
@@ -368,7 +378,7 @@ export function SettlePaymentsDialog({
                       {formatMoney(entry.allocation.amount)}
                     </strong>
                   </label>
-                ))}
+                ))}</section>)}
               </div>
               <div className="summary-grid">
                 <article className="metric">
@@ -435,6 +445,7 @@ export function SettlePaymentsDialog({
                       <div key={item.key}>
                         <span>
                           {item.allocation.contributionTitle}
+                          <small>{item.folder.folder.name}</small>
                           <small>
                             {item.allocation.fromFriendId === currentPersonId
                               ? `You → ${person.name}`
