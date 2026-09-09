@@ -230,6 +230,14 @@ export async function respondAccountLinkRequest(
       },
     );
   });
+  if(accept){
+    const methods=await getDocs(collection(db,"users",request.requesterUid,"friends",request.requesterFriendId,"paymentMethods"));
+    if(!methods.empty){
+      const batch=writeBatch(db),notificationRef=doc(db,"users",uid,"notifications",`payment-method-review_${request.id}`);
+      batch.set(notificationRef,{type:"payment-method-review",title:"Payment Method Review",message:`${request.requesterNameSnapshot} saved payment details for you before your account was linked.`,actorUid:uid,recipientUid:uid,accountLinkRequestId:request.id,paymentMethodOwnerUid:request.requesterUid,paymentMethodFriendId:request.requesterFriendId,read:false,createdAt:serverTimestamp()},{merge:true});
+      await batch.commit();
+    }
+  }
   await logActivity(uid, {
     action: accept ? "Account link accepted" : "Account link declined",
     description: request.requesterFriendNameSnapshot,

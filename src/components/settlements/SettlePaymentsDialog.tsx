@@ -487,6 +487,7 @@ export function SettlePaymentsDialog({
                           currentUid={uid}
                           friend={person}
                           amount={-net / 100}
+                          providerName={userName}
                         />
                       )}
                       <Button disabled={busy[id]} onClick={() => finalize(id)}>

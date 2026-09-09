@@ -50,6 +50,11 @@ export interface PaymentMethod {
   qrImageId?: string | null;
   qrCodeStoragePath?: string | null;
   isPreferred?: boolean;
+  providedByUserId?: string;
+  providedByDisplayName?: string;
+  representsUserId?: string | null;
+  verificationStatus?: "self" | "pending" | "confirmed" | "incorrect";
+  verifiedByLinkedUserAt?: Timestamp | null;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -270,6 +275,7 @@ export interface AppNotification {
     | "account-link-accepted"
     | "account-link-declined"
     | "account-link-cancelled"
+    | "payment-method-review"
     | "folder-invitation"
     | "folder-invitation-accepted"
     | "folder-invitation-declined"
@@ -281,6 +287,8 @@ export interface AppNotification {
   recipientNameSnapshot?: string | null;
   settlementRequestId?: string | null;
   accountLinkRequestId?: string | null;
+  paymentMethodOwnerUid?: string | null;
+  paymentMethodFriendId?: string | null;
   folderInvitationId?: string | null;
   read: boolean;
   createdAt: Timestamp;

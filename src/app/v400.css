@@ -168,3 +168,27 @@
   .friend-row { grid-template-columns: 1fr auto; }
   .notification-card { display: grid; }
 }
+
+/* Version 4.1 Friend Group details */
+.group-card-clickable { padding: 0; overflow: hidden; }
+.group-card-main { grid-column: 1 / -1; width: 100%; border: 0; background: transparent; color: inherit; padding: 18px; display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 16px; text-align: left; cursor: pointer; }
+.group-card-main:hover { background: color-mix(in srgb, var(--brand) 5%, transparent); }
+.group-card-clickable > .row-actions { margin: 0 18px; padding: 8px 0; }
+.group-details { display: grid; gap: 20px; }
+.group-details h3 { margin: 0 0 9px; font-size: 16px; }
+.group-member-list, .group-folder-list { border-block: 1px solid var(--line); }
+.group-member-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 54px; border-bottom: 1px solid var(--line); }
+.group-member-row:last-child { border-bottom: 0; }
+.group-member-row .button { min-width: 82px; }
+.group-folder-list > div { padding: 11px 2px; border-bottom: 1px solid var(--line); }
+.group-folder-list > div:last-child { border-bottom: 0; }
+.payment-review { display: grid; gap: 14px; }
+.payment-method-source { display: grid; gap: 7px; }
+.payment-method-source + .payment-method-source { margin-top: 17px; }
+.payment-method-source > h3 { margin: 0; font-size: 14px; color: var(--muted); }
+.payment-verification { display: block !important; margin: 4px 0 0 !important; font-size: 12px; }
+.payment-verification.confirmed { color: var(--money-incoming); }
+.payment-verification.pending { color: var(--money-pending); }
+.payment-review-row { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 12px 2px; border-top: 1px solid var(--line); }
+.payment-review-row p, .payment-review-row small { display: block; margin: 4px 0 0; color: var(--muted); }
+@media(max-width:560px){.payment-review-row{align-items:stretch;display:grid}.payment-review-row .row-actions>*{flex:1}}

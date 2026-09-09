@@ -26,19 +26,21 @@ import { requireAuth } from "@/lib/firebase";
 
 function PaymentRows({
   methods,
+  heading,
   onEdit,
   onDelete,
   onShow,
   onMessage,
 }: {
   methods: PaymentMethod[];
+  heading?: string;
   onEdit?: (m: PaymentMethod) => void;
   onDelete?: (m: PaymentMethod) => void;
   onShow: (m: PaymentMethod) => void;
   onMessage?: (m: string) => void;
 }) {
   return (
-    <div className="payment-method-list">
+    <div className="payment-method-source">{heading&&<h3>{heading}</h3>}<div className="payment-method-list">
       {methods.map((method) => (
         <div className="payment-method-row" key={method.id}>
           <div>
@@ -49,6 +51,7 @@ function PaymentRows({
               {method.accountName || "Account name not set"}
               {method.accountNumber ? ` · ${method.accountNumber}` : ""}
             </span>
+            {method.verificationStatus&&method.verificationStatus!=="self"&&<small className={`payment-verification ${method.verificationStatus}`}>{method.verificationStatus==="confirmed"?"✓ Confirmed by Friend":method.verificationStatus==="incorrect"?"Marked incorrect":"Pending confirmation"}</small>}
           </div>
           <div className="row-actions">
             {method.accountNumber && (
@@ -89,7 +92,7 @@ function PaymentRows({
           </div>
         </div>
       ))}
-    </div>
+    </div></div>
   );
 }
 function QRDialog({
@@ -236,6 +239,8 @@ export function PaymentMethodsPanel({
     [ownerUid, localFriendId],
   );
   const data = useCollectionData(subscription),
+    localSubscription=useCallback((next:(items:PaymentMethod[])=>void,fail:(error:Error)=>void)=>subscribePaymentMethods(currentUid,friend.id,next,fail),[currentUid,friend.id]),
+    locallyProvided=useCollectionData(linked?localSubscription:null),
     [editing, setEditing] = useState<PaymentMethod | "new" | null>(null),
     [showing, setShowing] = useState<PaymentMethod | null>(null),
     [provider, setProvider] = useState<PaymentProvider>("gcash"),
@@ -340,16 +345,17 @@ export function PaymentMethodsPanel({
             : "error"
         }
       />
-      {!data.loading && !data.items.length ? (
+      {!data.loading && !data.items.length&&!locallyProvided.items.filter(method=>(method.verificationStatus||"pending")!=="incorrect").length ? (
         <p className="muted-copy">No payment methods yet.</p>
       ) : (
-        <PaymentRows
-          methods={data.items}
+        <>{data.items.length>0&&<PaymentRows
+          methods={data.items.filter(method=>method.verificationStatus!=="incorrect")}
+          heading={`Provided by ${linked?friend.name:requireAuth().currentUser?.displayName||"You"}`}
           onShow={setShowing}
           onMessage={setMessage}
           onEdit={manageable ? setEditing : undefined}
           onDelete={manageable ? remove : undefined}
-        />
+        />}{linked&&locallyProvided.items.some(method=>(method.verificationStatus||"pending")!=="incorrect")&&<PaymentRows methods={locallyProvided.items.filter(method=>(method.verificationStatus||"pending")!=="incorrect")} heading={`Provided by ${requireAuth().currentUser?.displayName||"You"}`} onShow={setShowing}/>}</>
       )}
       <Dialog
         open={!!editing}
@@ -455,10 +461,12 @@ export function PayeePaymentMethods({
   currentUid,
   friend,
   amount,
+  providerName,
 }: {
   currentUid: string;
   friend: Friend;
   amount: number;
+  providerName?: string;
 }) {
   const ownerUid = friend.linkedUserId || currentUid,
     localFriendId = friend.linkedUserId ? null : friend.id,
@@ -468,9 +476,12 @@ export function PayeePaymentMethods({
       [ownerUid, localFriendId],
     ),
     data = useCollectionData(subscription),
+    localSubscription=useCallback((next:(items:PaymentMethod[])=>void,fail:(error:Error)=>void)=>subscribePaymentMethods(currentUid,friend.id,next,fail),[currentUid,friend.id]),
+    localData=useCollectionData(friend.linkedUserId?localSubscription:null),
     [open, setOpen] = useState(false),
     [qr, setQr] = useState<PaymentMethod | null>(null);
-  if (!data.items.length)
+  const personal=data.items.filter(method=>method.verificationStatus!=="incorrect"),ownerProvided=localData.items.filter(method=>(method.verificationStatus||"pending")!=="incorrect");
+  if (!personal.length&&!ownerProvided.length)
     return <small className="muted-copy">No Payment Method</small>;
   return (
     <>
@@ -487,7 +498,8 @@ export function PayeePaymentMethods({
             <span>Amount to Pay</span>
             <strong className="money-outgoing">{formatMoney(amount)}</strong>
           </div>
-          <PaymentRows methods={data.items} onShow={setQr} />
+          {personal.length>0&&<PaymentRows heading={`Provided by ${friend.name}`} methods={personal} onShow={setQr} />}
+          {ownerProvided.length>0&&<PaymentRows heading={`Provided by Folder Owner (${providerName||requireAuth().currentUser?.displayName||"Owner"})`} methods={ownerProvided} onShow={setQr} />}
           <Button variant="secondary" onClick={() => setOpen(false)}>
             Back to Settlements
           </Button>

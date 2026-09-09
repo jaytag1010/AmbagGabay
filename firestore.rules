@@ -32,7 +32,14 @@ service cloud.firestore {
             && request.resource.data.linkedDisplayName == getAfter(/databases/$(database)/documents/accountLinkRequests/$(request.resource.data.linkedByRequestId)).data.targetNameSnapshot
             && request.resource.data.linkedEmail == getAfter(/databases/$(database)/documents/accountLinkRequests/$(request.resource.data.linkedByRequestId)).data.targetEmailSnapshot);
         allow delete: if false;
-        match /paymentMethods/{methodId} { allow read, write: if isOwner(uid); }
+        match /paymentMethods/{methodId} {
+          allow read: if isOwner(uid) || (signedIn() && get(/databases/$(database)/documents/users/$(uid)/friends/$(friendId)).data.linkedUserId == request.auth.uid);
+          allow create, delete: if isOwner(uid);
+          allow update: if isOwner(uid) || (signedIn()
+            && get(/databases/$(database)/documents/users/$(uid)/friends/$(friendId)).data.linkedUserId == request.auth.uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['verificationStatus','verifiedByLinkedUserAt'])
+            && request.resource.data.verificationStatus in ['confirmed','incorrect']);
+        }
       }
       match /paymentMethods/{methodId} {
         allow read: if isOwner(uid) || (signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)/friendLinks/$(uid)));

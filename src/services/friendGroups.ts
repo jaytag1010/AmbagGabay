@@ -1,4 +1,4 @@
-import { addDoc, collection, doc, getDocs, onSnapshot, orderBy, query, serverTimestamp, updateDoc, writeBatch } from "firebase/firestore";
+import { addDoc, arrayRemove, collection, doc, getDocs, onSnapshot, orderBy, query, serverTimestamp, updateDoc, writeBatch } from "firebase/firestore";
 import { requireDb } from "@/lib/firebase";
 import type { FriendGroup, FriendGroupInput } from "@/types";
 import { cleanName } from "@/utils/format";
@@ -18,6 +18,10 @@ export function subscribeFriendGroups(uid: string, callback: (items: FriendGroup
 }
 export async function createFriendGroup(uid: string, input: FriendGroupInput) { const data = await validate(uid, input); const now = serverTimestamp(); const created=await addDoc(groupsRef(uid), { ...data, createdAt: now, updatedAt: now }); await logActivity(uid,{action:"Group created",description:data.name,entityType:"group",entityId:created.id}); }
 export async function updateFriendGroup(uid: string, id: string, input: FriendGroupInput) { const data = await validate(uid, input); await updateDoc(doc(groupsRef(uid), id), { ...data, updatedAt: serverTimestamp() }); await logActivity(uid,{action:"Group edited",description:data.name,entityType:"group",entityId:id}); }
+export async function removeFriendFromGroup(uid:string,group:FriendGroup,friendId:string,friendName:string){
+  await updateDoc(doc(groupsRef(uid),group.id),{friendIds:arrayRemove(friendId),updatedAt:serverTimestamp()});
+  await logActivity(uid,{action:"Friend removed from Group",description:`Removed ${friendName} from ${group.name}`,entityType:"group",entityId:group.id});
+}
 export async function deleteFriendGroup(uid: string, id: string) {
   const db = requireDb(); const groups=await getDocs(groupsRef(uid));const name=groups.docs.find(item=>item.id===id)?.data().name||"Friend group";const folders = await getDocs(collection(db, "users", uid, "folders")); const batch = writeBatch(db);
   folders.docs.filter(item => item.data().defaultFriendGroupId === id).forEach(item => batch.update(item.ref, { defaultFriendGroupId: null, updatedAt: serverTimestamp() }));

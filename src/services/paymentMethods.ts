@@ -115,6 +115,10 @@ export async function savePaymentMethod(
   else
     await addDoc(methodsRef(ownerUid, input.localFriendId), {
       ...base,
+      providedByUserId: ownerUid,
+      providedByDisplayName: requireAuth().currentUser?.displayName || "AmbagGabay user",
+      verificationStatus: input.localFriendId ? "pending" : "self",
+      verifiedByLinkedUserAt: null,
       qrCodeUrl,
       qrImageId,
       qrCodeStoragePath,
@@ -126,6 +130,9 @@ export async function savePaymentMethod(
     description: `${input.provider === "other" ? custom : providerLabel(input.provider)} payment method`,
     entityType: "paymentMethod",
   });
+}
+export async function reviewPaymentMethod(ownerUid:string,friendId:string,methodId:string,status:"confirmed"|"incorrect"){
+  await updateDoc(doc(methodsRef(ownerUid,friendId),methodId),{verificationStatus:status,verifiedByLinkedUserAt:serverTimestamp()});
 }
 export async function deletePaymentMethod(
   ownerUid: string,

@@ -23,11 +23,20 @@ import {
   subscribeAccountLinkRequest,
 } from "@/services/identityLinks";
 import { respondInvitation, subscribeInvitation } from "@/services/sharing";
+import { providerLabel, reviewPaymentMethod, subscribePaymentMethods } from "@/services/paymentMethods";
 import type {
   AccountLinkRequest,
   AppNotification,
   SettlementRequest,
+  PaymentMethod,
 } from "@/types";
+
+function PaymentMethodReviewActions({notification}:{notification:AppNotification}){
+  const ownerUid=notification.paymentMethodOwnerUid||"",friendId=notification.paymentMethodFriendId||"",[methods,setMethods]=useState<PaymentMethod[]>([]),[open,setOpen]=useState(false),[busy,setBusy]=useState<string|null>(null),[error,setError]=useState<string|null>(null);
+  useEffect(()=>ownerUid&&friendId?subscribePaymentMethods(ownerUid,friendId,setMethods,e=>setError(e.message)):undefined,[ownerUid,friendId]);
+  const pending=methods.filter(method=>(method.verificationStatus||"pending")==="pending");
+  return <><Button variant="secondary" onClick={()=>setOpen(true)}>Review</Button><Dialog open={open} title="Review Payment Methods" onClose={()=>setOpen(false)}><div className="payment-review"><p className="muted-copy">These details were provided by another user before your Friend account was linked. Review each method independently.</p><Notice message={error}/>{methods.map(method=><div className="payment-review-row" key={method.id}><div><strong>{providerLabel(method.provider,method.customProviderName)}</strong><p>{method.accountName}{method.accountNumber?` · ${method.accountNumber}`:""}</p><small>Provided by {method.providedByDisplayName||notification.message.split(" saved payment")[0]} · {(method.verificationStatus||"pending")==="confirmed"?"Confirmed by you":(method.verificationStatus||"pending")==="incorrect"?"Marked incorrect":"Pending confirmation"}</small></div>{(method.verificationStatus||"pending")==="pending"&&<div className="row-actions"><Button variant="secondary" disabled={!!busy} onClick={async()=>{setBusy(method.id);try{await reviewPaymentMethod(ownerUid,friendId,method.id,"incorrect")}catch(e){setError(e instanceof Error?e.message:"Unable to update method.")}finally{setBusy(null)}}}>Incorrect</Button><Button disabled={!!busy} onClick={async()=>{setBusy(method.id);try{await reviewPaymentMethod(ownerUid,friendId,method.id,"confirmed")}catch(e){setError(e instanceof Error?e.message:"Unable to update method.")}finally{setBusy(null)}}}>Confirm</Button></div>}</div>)}{!methods.length&&!error&&<p className="muted-copy">No methods require review.</p>}<div className="dialog-actions"><Link className="button button-secondary" href="/friends/me">Add My Own Payment Method</Link><span/><Button variant="secondary" onClick={()=>setOpen(false)}>{pending.length?"Close":"Done"}</Button></div></div></Dialog></>;
+}
 
 function PaymentRequestActions({
   notification,
@@ -243,6 +252,7 @@ function RequestActions({
   notification: AppNotification;
   uid: string;
 }) {
+  if(notification.type==="payment-method-review")return <PaymentMethodReviewActions notification={notification}/>;
   if (notification.accountLinkRequestId)
     return <AccountLinkActions notification={notification} uid={uid} />;
   if (notification.folderInvitationId)

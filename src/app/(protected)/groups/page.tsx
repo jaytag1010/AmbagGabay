@@ -13,11 +13,13 @@ import { usePersistentSort } from "@/hooks/usePersistentSort";
 import {
   createFriendGroup,
   deleteFriendGroup,
+  removeFriendFromGroup,
   subscribeFriendGroups,
   updateFriendGroup,
 } from "@/services/friendGroups";
 import { subscribeFriends } from "@/services/friends";
-import type { FriendGroup } from "@/types";
+import { subscribeFolders } from "@/services/folders";
+import type { Friend, FriendGroup } from "@/types";
 import { friendLabel } from "@/utils/format";
 import { alpha, millis } from "@/utils/sortMetrics";
 type GroupSort =
@@ -45,11 +47,16 @@ export default function GroupsPage() {
   );
   const friends = useCollectionData(friendSub);
   const groups = useCollectionData(groupSub);
+  const folderSub=useCallback((next:Parameters<typeof subscribeFolders>[1],fail:Parameters<typeof subscribeFolders>[2])=>subscribeFolders(uid,next,fail),[uid]);
+  const folders=useCollectionData(folderSub);
   const [editing, setEditing] = useState<FriendGroup | "new" | null>(null);
+  const [viewingId,setViewingId]=useState<string|null>(null);
+  const [removing,setRemoving]=useState<{group:FriendGroup;friend:Friend}|null>(null);
   const [deleting, setDeleting] = useState<FriendGroup | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const available = friends.items.filter((friend) => !friend.archived);
+  const viewing=viewingId?groups.items.find(group=>group.id===viewingId)||null:null;
   const [sort, setSort] = usePersistentSort<GroupSort>("groups", "az");
   const sortedGroups = [...groups.items].sort((a, b) => {
     const tie = alpha(a, b);
@@ -142,7 +149,8 @@ export default function GroupsPage() {
       ) : (
         <div className="group-grid">
           {sortedGroups.map((group) => (
-            <article className="group-card" key={group.id}>
+            <article className="group-card group-card-clickable" key={group.id}>
+              <button className="group-card-main" onClick={()=>setViewingId(group.id)} aria-label={`View ${group.name} Group details`}>
               <div>
                 <h2>{group.name}</h2>
                 <p>
@@ -164,6 +172,7 @@ export default function GroupsPage() {
                   </span>
                 ))}
               </div>
+              </button>
               <div className="row-actions">
                 <button
                   className="icon-button"
@@ -184,6 +193,10 @@ export default function GroupsPage() {
           ))}
         </div>
       )}
+      <Dialog open={!!viewing} wide title={viewing?.name||"Friend Group"} onClose={()=>setViewingId(null)}>
+        {viewing&&<div className="group-details"><p className="muted-copy">{viewing.friendIds.length} {viewing.friendIds.length===1?"member":"members"}{viewing.createdAt?.toDate?` · Created ${viewing.createdAt.toDate().toLocaleDateString("en-PH",{dateStyle:"medium"})}`:""}</p><section><h3>Members</h3><div className="group-member-list">{viewing.friendIds.length?viewing.friendIds.map(id=>friends.items.find(friend=>friend.id===id)).filter((friend):friend is Friend=>!!friend).map(friend=><div className="group-member-row" key={friend.id}><span className="person-label"><FriendAvatar friend={friend}/><strong>{friendLabel(friend)}</strong></span><Button variant="ghost" aria-label={`Remove ${friend.name} from ${viewing.name}`} onClick={()=>setRemoving({group:viewing,friend})}>Remove</Button></div>):<p className="muted-copy">No members yet.</p>}</div></section><section><h3>Used when creating Folders</h3>{folders.items.some(folder=>folder.defaultFriendGroupId===viewing.id)?<div className="group-folder-list">{folders.items.filter(folder=>folder.defaultFriendGroupId===viewing.id).map(folder=><div key={folder.id}>{folder.icon||"📁"} {folder.name}</div>)}</div>:<p className="muted-copy">No Folders currently reference this Group.</p>}</section><div className="dialog-actions"><Button variant="danger" onClick={()=>{setDeleting(viewing);setViewingId(null)}}>Delete Group</Button><span/><Button variant="secondary" onClick={()=>setViewingId(null)}>Close</Button><Button onClick={()=>{setEditing(viewing);setViewingId(null)}}><Pencil size={17}/> Edit Group</Button></div></div>}
+      </Dialog>
+      <Dialog open={!!removing} title={removing?`Remove ${removing.friend.name} from ${removing.group.name}?`:"Remove from Group?"} onClose={()=>setRemoving(null)}><p>This only removes {removing?.friend.name} from this Friend Group. Existing folders, expenses, links, settlements, and history will not be changed.</p><div className="dialog-actions"><span/><Button variant="secondary" onClick={()=>setRemoving(null)}>Cancel</Button><Button variant="danger" disabled={busy} onClick={async()=>{if(!removing)return;setBusy(true);try{await removeFriendFromGroup(uid,removing.group,removing.friend.id,removing.friend.name);setMessage(`${removing.friend.name} removed from ${removing.group.name}.`);setRemoving(null)}catch(cause){setMessage(cause instanceof Error?cause.message:"Unable to remove Group member.")}finally{setBusy(false)}}}>Remove</Button></div></Dialog>
       <Dialog
         open={!!editing}
         title={editing === "new" ? "Create friend group" : "Edit friend group"}
