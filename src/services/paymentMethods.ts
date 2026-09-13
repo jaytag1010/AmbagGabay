@@ -6,7 +6,9 @@ import {
   onSnapshot,
   orderBy,
   query,
+  runTransaction,
   serverTimestamp,
+  setDoc,
   updateDoc,
 } from "firebase/firestore";
 import { requireAuth, requireDb } from "@/lib/firebase";
@@ -117,8 +119,11 @@ export async function savePaymentMethod(
       ...base,
       providedByUserId: ownerUid,
       providedByDisplayName: requireAuth().currentUser?.displayName || "AmbagGabay user",
-      verificationStatus: input.localFriendId ? "pending" : "self",
+      verificationStatus: input.localFriendId ? "local" : "self",
       verifiedByLinkedUserAt: null,
+      verifiedByUserId: null,
+      verifiedByDisplayName: null,
+      reviewVersion: 0,
       qrCodeUrl,
       qrImageId,
       qrCodeStoragePath,
@@ -131,8 +136,27 @@ export async function savePaymentMethod(
     entityType: "paymentMethod",
   });
 }
-export async function reviewPaymentMethod(ownerUid:string,friendId:string,methodId:string,status:"confirmed"|"incorrect"){
-  await updateDoc(doc(methodsRef(ownerUid,friendId),methodId),{verificationStatus:status,verifiedByLinkedUserAt:serverTimestamp()});
+export type PaymentMethodState="self"|"local"|"pending"|"confirmed"|"rejected";
+export function paymentMethodState(method:PaymentMethod,linked:boolean):PaymentMethodState{
+  if(method.verificationStatus==="self")return "self";
+  if(!linked)return "local";
+  if(method.verificationStatus==="incorrect"||method.verificationStatus==="rejected")return "rejected";
+  if(method.verificationStatus==="confirmed")return "confirmed";
+  return "pending";
+}
+export function isPaymentMethodEligible(method:PaymentMethod,{linked,external}:{linked:boolean;external:boolean}){
+  return !external||!linked?paymentMethodState(method,linked)!=="rejected":paymentMethodState(method,true)==="confirmed";
+}
+export async function reviewPaymentMethod(input:{ownerUid:string;friendId:string;method:PaymentMethod;status:"confirmed"|"rejected";reviewerUid:string;reviewerName:string}){
+  const db=requireDb(),methodRef=doc(methodsRef(input.ownerUid,input.friendId),input.method.id),version=input.method.reviewVersion||1;
+  await runTransaction(db,async tx=>{const current=await tx.get(methodRef);if(!current.exists())throw new Error("This payment method is no longer available.");const data=current.data();if(data.verificationStatus!=="pending"||(data.reviewVersion||1)!==version)throw new Error("This review is no longer current.");tx.update(methodRef,{verificationStatus:input.status,verifiedByLinkedUserAt:serverTimestamp(),verifiedByUserId:input.reviewerUid,verifiedByDisplayName:input.reviewerName});if(input.status==="rejected")tx.set(doc(db,"users",input.ownerUid,"notifications",`payment-method-rejected_${input.method.id}_v${version}`),{type:"payment-method-rejected",title:"Payment Method Rejected",message:`${input.reviewerName} rejected the ${providerLabel(input.method.provider,input.method.customProviderName)} payment method you provided. Review the details and either edit or delete it.`,actorUid:input.reviewerUid,recipientUid:input.ownerUid,paymentMethodFriendId:input.friendId,paymentMethodId:input.method.id,paymentMethodReviewVersion:version,read:false,createdAt:serverTimestamp()});});
+  await logActivity(input.reviewerUid,{action:input.status==="confirmed"?"Payment method confirmed":"Payment method rejected",description:providerLabel(input.method.provider,input.method.customProviderName),entityType:"paymentMethod",entityId:input.method.id});
+}
+export async function sendPaymentMethodForReview(input:{ownerUid:string;friendId:string;method:PaymentMethod;linkedUserId:string;linkedName:string}){
+  const version=(input.method.reviewVersion||0)+1,methodRef=doc(methodsRef(input.ownerUid,input.friendId),input.method.id);
+  await updateDoc(methodRef,{verificationStatus:"pending",representsUserId:input.linkedUserId,reviewVersion:version,verifiedByLinkedUserAt:null,verifiedByUserId:null,verifiedByDisplayName:null,updatedAt:serverTimestamp()});
+  await setDoc(doc(requireDb(),"users",input.linkedUserId,"notifications",`payment-method-review_${input.method.id}_v${version}`),{type:"payment-method-review",title:"Payment Method Review",message:`${requireAuth().currentUser?.displayName||"A Friend"} updated a payment method for you. Please review whether the information is correct.`,actorUid:input.ownerUid,recipientUid:input.linkedUserId,paymentMethodOwnerUid:input.ownerUid,paymentMethodFriendId:input.friendId,paymentMethodId:input.method.id,paymentMethodReviewVersion:version,read:false,createdAt:serverTimestamp()});
+  await logActivity(input.ownerUid,{action:"Payment method sent for confirmation",description:providerLabel(input.method.provider,input.method.customProviderName),entityType:"paymentMethod",entityId:input.method.id});
 }
 export async function deletePaymentMethod(
   ownerUid: string,

@@ -233,8 +233,8 @@ export async function respondAccountLinkRequest(
   if(accept){
     const methods=await getDocs(collection(db,"users",request.requesterUid,"friends",request.requesterFriendId,"paymentMethods"));
     if(!methods.empty){
-      const batch=writeBatch(db),notificationRef=doc(db,"users",uid,"notifications",`payment-method-review_${request.id}`);
-      batch.set(notificationRef,{type:"payment-method-review",title:"Payment Method Review",message:`${request.requesterNameSnapshot} saved payment details for you before your account was linked.`,actorUid:uid,recipientUid:uid,accountLinkRequestId:request.id,paymentMethodOwnerUid:request.requesterUid,paymentMethodFriendId:request.requesterFriendId,read:false,createdAt:serverTimestamp()},{merge:true});
+      const batch=writeBatch(db);
+      methods.docs.forEach(method=>{const data=method.data(),sameIdentity=data.representsUserId===uid&&data.verificationStatus==="confirmed";if(sameIdentity)return;const version=(data.reviewVersion||0)+1;batch.update(method.ref,{providedByUserId:data.providedByUserId||request.requesterUid,providedByDisplayName:data.providedByDisplayName||request.requesterNameSnapshot,representsUserId:uid,verificationStatus:"pending",verifiedByLinkedUserAt:null,verifiedByUserId:null,verifiedByDisplayName:null,reviewVersion:version,updatedAt:serverTimestamp()});batch.set(doc(db,"users",uid,"notifications",`payment-method-review_${method.id}_v${version}`),{type:"payment-method-review",title:"Payment Method Review",message:`${request.requesterNameSnapshot} saved a payment method for you before your account was linked.`,actorUid:uid,recipientUid:uid,accountLinkRequestId:request.id,paymentMethodOwnerUid:request.requesterUid,paymentMethodFriendId:request.requesterFriendId,paymentMethodId:method.id,paymentMethodReviewVersion:version,read:false,createdAt:serverTimestamp()});});
       await batch.commit();
     }
   }

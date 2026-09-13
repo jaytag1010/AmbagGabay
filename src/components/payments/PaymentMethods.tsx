@@ -15,7 +15,10 @@ import { Notice } from "@/components/ui/Feedback";
 import { useCollectionData } from "@/hooks/useCollectionData";
 import {
   deletePaymentMethod,
+  isPaymentMethodEligible,
+  paymentMethodState,
   providerLabel,
+  sendPaymentMethodForReview,
   savePaymentMethod,
   subscribePaymentMethods,
 } from "@/services/paymentMethods";
@@ -27,6 +30,8 @@ import { requireAuth } from "@/lib/firebase";
 function PaymentRows({
   methods,
   heading,
+  linkedContext=false,
+  externalContext=false,
   onEdit,
   onDelete,
   onShow,
@@ -34,6 +39,8 @@ function PaymentRows({
 }: {
   methods: PaymentMethod[];
   heading?: string;
+  linkedContext?: boolean;
+  externalContext?: boolean;
   onEdit?: (m: PaymentMethod) => void;
   onDelete?: (m: PaymentMethod) => void;
   onShow: (m: PaymentMethod) => void;
@@ -51,7 +58,7 @@ function PaymentRows({
               {method.accountName || "Account name not set"}
               {method.accountNumber ? ` · ${method.accountNumber}` : ""}
             </span>
-            {method.verificationStatus&&method.verificationStatus!=="self"&&<small className={`payment-verification ${method.verificationStatus}`}>{method.verificationStatus==="confirmed"?"✓ Confirmed by Friend":method.verificationStatus==="incorrect"?"Marked incorrect":"Pending confirmation"}</small>}
+            {linkedContext&&externalContext&&paymentMethodState(method,true)!=="self"&&<small className={`payment-verification ${paymentMethodState(method,true)}`}>{paymentMethodState(method,true)==="confirmed"?`✓ Confirmed by ${method.verifiedByDisplayName||"Friend"}`:paymentMethodState(method,true)==="rejected"?`Rejected by ${method.verifiedByDisplayName||"Friend"}`:"Pending confirmation"}</small>}
           </div>
           <div className="row-actions">
             {method.accountNumber && (
@@ -246,6 +253,7 @@ export function PaymentMethodsPanel({
     [provider, setProvider] = useState<PaymentProvider>("gcash"),
     [qrFile, setQrFile] = useState<File | null>(null),
     [removeQr, setRemoveQr] = useState(false),
+    [editingLocal,setEditingLocal]=useState(false),
     [busy, setBusy] = useState(false),
     [message, setMessage] = useState<string | null>(null);
   const qrPreview = useMemo(
@@ -265,14 +273,15 @@ export function PaymentMethodsPanel({
   }, [editing]);
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setBusy(true);
-    setMessage(null);
     const form = new FormData(event.currentTarget),
       old = editing && editing !== "new" ? editing : null;
+    if(linked&&editingLocal&&old&&!window.confirm(`Send for Confirmation?\n\nSaving these changes will send a new payment-method approval request to ${friend.name}.`))return;
+    setBusy(true);
+    setMessage(null);
     try {
       await savePaymentMethod(currentUid, {
         id: old?.id,
-        localFriendId,
+        localFriendId:editingLocal?friend.id:localFriendId,
         provider,
         customProviderName: String(form.get("customProviderName") || ""),
         accountName: String(form.get("accountName") || ""),
@@ -283,7 +292,9 @@ export function PaymentMethodsPanel({
         existingQrImageId: old?.qrImageId,
         removeQr,
       });
+      if(linked&&editingLocal&&old)await sendPaymentMethodForReview({ownerUid:currentUid,friendId:friend.id,method:old,linkedUserId:friend.linkedUserId!,linkedName:friend.name});
       setEditing(null);
+      setEditingLocal(false);
       setMessage("Payment method saved.");
     } catch (cause) {
       setMessage(
@@ -295,7 +306,7 @@ export function PaymentMethodsPanel({
       setBusy(false);
     }
   }
-  async function remove(method: PaymentMethod) {
+  async function remove(method: PaymentMethod,targetFriendId=localFriendId) {
     if (
       !confirm(
         `Delete ${providerLabel(method.provider, method.customProviderName)} payment method?`,
@@ -303,7 +314,7 @@ export function PaymentMethodsPanel({
     )
       return;
     try {
-      await deletePaymentMethod(currentUid, method, localFriendId);
+      await deletePaymentMethod(currentUid, method, targetFriendId);
     } catch (cause) {
       setMessage(
         cause instanceof Error
@@ -323,7 +334,7 @@ export function PaymentMethodsPanel({
     }
   }
   return (
-    <section className="panel payment-methods-panel">
+    <section className="panel payment-methods-panel" id="payment-methods">
       <div className="section-heading">
         <div>
           <h2>Payment Methods</h2>
@@ -351,11 +362,12 @@ export function PaymentMethodsPanel({
         <>{data.items.length>0&&<PaymentRows
           methods={data.items.filter(method=>method.verificationStatus!=="incorrect")}
           heading={`Provided by ${linked?friend.name:requireAuth().currentUser?.displayName||"You"}`}
+          linkedContext={linked}
           onShow={setShowing}
           onMessage={setMessage}
           onEdit={manageable ? setEditing : undefined}
           onDelete={manageable ? remove : undefined}
-        />}{linked&&locallyProvided.items.some(method=>(method.verificationStatus||"pending")!=="incorrect")&&<PaymentRows methods={locallyProvided.items.filter(method=>(method.verificationStatus||"pending")!=="incorrect")} heading={`Provided by ${requireAuth().currentUser?.displayName||"You"}`} onShow={setShowing}/>}</>
+        />}{linked&&locallyProvided.items.length>0&&<PaymentRows methods={locallyProvided.items} linkedContext externalContext heading={`Provided by ${requireAuth().currentUser?.displayName||"You"}`} onShow={setShowing} onEdit={method=>{setEditingLocal(true);setEditing(method)}} onDelete={method=>remove(method,friend.id)}/>}</>
       )}
       <Dialog
         open={!!editing}
@@ -480,7 +492,7 @@ export function PayeePaymentMethods({
     localData=useCollectionData(friend.linkedUserId?localSubscription:null),
     [open, setOpen] = useState(false),
     [qr, setQr] = useState<PaymentMethod | null>(null);
-  const personal=data.items.filter(method=>method.verificationStatus!=="incorrect"),ownerProvided=localData.items.filter(method=>(method.verificationStatus||"pending")!=="incorrect");
+  const personal=data.items.filter(method=>isPaymentMethodEligible(method,{linked:true,external:false})),ownerProvided=localData.items.filter(method=>isPaymentMethodEligible(method,{linked:true,external:true}));
   if (!personal.length&&!ownerProvided.length)
     return <small className="muted-copy">No Payment Method</small>;
   return (
@@ -499,7 +511,7 @@ export function PayeePaymentMethods({
             <strong className="money-outgoing">{formatMoney(amount)}</strong>
           </div>
           {personal.length>0&&<PaymentRows heading={`Provided by ${friend.name}`} methods={personal} onShow={setQr} />}
-          {ownerProvided.length>0&&<PaymentRows heading={`Provided by Folder Owner (${providerName||requireAuth().currentUser?.displayName||"Owner"})`} methods={ownerProvided} onShow={setQr} />}
+          {ownerProvided.length>0&&<PaymentRows linkedContext externalContext heading={`Provided by Folder Owner (${providerName||requireAuth().currentUser?.displayName||"Owner"})`} methods={ownerProvided} onShow={setQr} />}
           <Button variant="secondary" onClick={() => setOpen(false)}>
             Back to Settlements
           </Button>

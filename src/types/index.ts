@@ -53,8 +53,11 @@ export interface PaymentMethod {
   providedByUserId?: string;
   providedByDisplayName?: string;
   representsUserId?: string | null;
-  verificationStatus?: "self" | "pending" | "confirmed" | "incorrect";
+  verificationStatus?: "self" | "local" | "pending" | "confirmed" | "rejected" | "incorrect";
   verifiedByLinkedUserAt?: Timestamp | null;
+  verifiedByUserId?: string | null;
+  verifiedByDisplayName?: string | null;
+  reviewVersion?: number;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -276,6 +279,8 @@ export interface AppNotification {
     | "account-link-declined"
     | "account-link-cancelled"
     | "payment-method-review"
+    | "payment-method-rejected"
+    | "payment-method-confirmed"
     | "folder-invitation"
     | "folder-invitation-accepted"
     | "folder-invitation-declined"
@@ -289,6 +294,8 @@ export interface AppNotification {
   accountLinkRequestId?: string | null;
   paymentMethodOwnerUid?: string | null;
   paymentMethodFriendId?: string | null;
+  paymentMethodId?: string | null;
+  paymentMethodReviewVersion?: number | null;
   folderInvitationId?: string | null;
   read: boolean;
   createdAt: Timestamp;

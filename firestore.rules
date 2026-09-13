@@ -37,8 +37,12 @@ service cloud.firestore {
           allow create, delete: if isOwner(uid);
           allow update: if isOwner(uid) || (signedIn()
             && get(/databases/$(database)/documents/users/$(uid)/friends/$(friendId)).data.linkedUserId == request.auth.uid
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['verificationStatus','verifiedByLinkedUserAt'])
-            && request.resource.data.verificationStatus in ['confirmed','incorrect']);
+            && ((request.resource.data.diff(resource.data).affectedKeys().hasOnly(['verificationStatus','verifiedByLinkedUserAt','verifiedByUserId','verifiedByDisplayName'])
+                && resource.data.verificationStatus == 'pending'
+                && request.resource.data.verificationStatus in ['confirmed','rejected'])
+              || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['providedByUserId','providedByDisplayName','representsUserId','verificationStatus','verifiedByLinkedUserAt','verifiedByUserId','verifiedByDisplayName','reviewVersion','updatedAt'])
+                && request.resource.data.representsUserId == request.auth.uid
+                && request.resource.data.verificationStatus == 'pending')));
         }
       }
       match /paymentMethods/{methodId} {
