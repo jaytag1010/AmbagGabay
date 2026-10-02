@@ -26,7 +26,8 @@ import type {
   Settlement,
 } from "@/types";
 import { logActivity } from "@/services/activities";
-import { getPairNetBalance } from "@/utils/money";
+import { contributionRoundedShares, formatMoney, fromCentavos, getPairNetBalance } from "@/utils/money";
+import { contributionChangeSummary } from "@/utils/contributionChanges";
 const sharedId = (uid: string, folderId: string) => `${uid}_${folderId}`;
 async function shareStep<T>(operation:string,path:string,action:()=>Promise<T>){try{return await action()}catch(cause){if(process.env.NODE_ENV==="development")console.error("Folder invitation failed",{operation,path,code:typeof cause==="object"&&cause&&"code" in cause?String(cause.code):"unknown",message:cause instanceof Error?cause.message:String(cause)});throw cause}}
 export async function promotePrivateFolder(
@@ -298,8 +299,6 @@ export function subscribeSharedContributions(
     query(collection(requireDb(), "sharedFolders", folderId, "contributions")),
     async (snapshot) => {
       try {
-        const people = await getDocs(collection(requireDb(), "sharedFolders", folderId, "people"));
-        const personByUserId = new Map(people.docs.map(item => [item.data().linkedUserId, item.id]));
         next(
           await Promise.all(
             snapshot.docs.map(async (item) => {
@@ -312,7 +311,7 @@ export function subscribeSharedContributions(
                     ({ id: expense.id, ...expense.data() }) as Expense,
                 ),
               } as ContributionWithExpenses;
-              if (!contribution.settlementAnchorFriendId && contribution.createdByUserId) contribution.settlementAnchorFriendId = personByUserId.get(contribution.createdByUserId);
+              contribution.settlementAnchorFriendId = contribution.payerFriendId;
               return contribution;
             }),
           ),
@@ -403,13 +402,12 @@ export async function saveSharedContribution(
     );
   const db = requireDb(),
     people = await getDocs(collection(db, "sharedFolders", folderId, "people")),
-    settlementAnchorFriendId = people.docs.find(item => item.data().linkedUserId === uid)?.id || input.payerFriendId,
+    folderSnap = await getDoc(doc(db,"sharedFolders",folderId)),
     ref = contributionId
       ? doc(db, "sharedFolders", folderId, "contributions", contributionId)
       : doc(collection(db, "sharedFolders", folderId, "contributions")),
-    existing = contributionId
-      ? await getDocs(collection(ref, "expenses"))
-      : null,
+    existingContribution=contributionId?await getDoc(ref):null,
+    existing = contributionId?await getDocs(collection(ref, "expenses")):null,
     batch = writeBatch(db),
     now = serverTimestamp();
   batch.set(
@@ -419,13 +417,13 @@ export async function saveSharedContribution(
       date: input.date,
       payerFriendId: input.payerFriendId,
       participantIds: input.participantIds,
+      settlementAnchorFriendId: input.payerFriendId,
       ...(contributionId
         ? {}
         : {
             createdAt: now,
             createdByUserId: uid,
             createdByNameSnapshot: userName,
-            settlementAnchorFriendId,
           }),
       updatedAt: now,
     },
@@ -440,14 +438,19 @@ export async function saveSharedContribution(
     }),
   );
   await batch.commit();
+  const labels=new Map(people.docs.map(item=>[item.id,String(item.data().displayNameSnapshot||"Unknown")])),after={id:ref.id,title:input.title.trim(),date:input.date,payerFriendId:input.payerFriendId,participantIds:input.participantIds,settlementAnchorFriendId:input.payerFriendId,expenses:input.expenses} as unknown as ContributionWithExpenses,before=existingContribution?.exists()?{id:ref.id,...existingContribution.data(),expenses:existing!.docs.map(item=>({id:item.id,...item.data()} as Expense))} as ContributionWithExpenses:null,changes=before?contributionChangeSummary(before,after,id=>labels.get(id)||id):[];
+  const oldShares=before?contributionRoundedShares(before):new Map<string,number>(),newShares=contributionRoundedShares(after),affected=new Set([...oldShares.keys(),...newShares.keys(),...(before?[before.payerFriendId,...before.expenses.map(item=>item.payerFriendId||before.payerFriendId)]:[]),after.payerFriendId,...after.expenses.map(item=>item.payerFriendId||after.payerFriendId)]),noticeBatch=writeBatch(db),folderName=String(folderSnap.data()?.name||"Shared Folder");
+  for(const person of people.docs){const linkedUid=person.data().linkedUserId;if(!linkedUid||linkedUid===uid||!affected.has(person.id))continue;const oldShare=oldShares.get(person.id)||0,newShare=newShares.get(person.id)||0,kind=before?"contribution-updated":"contribution-added",message=!before?`${after.title} was added to ${folderName}. Your share: ${formatMoney(fromCentavos(newShare))}.`:`${after.title} in ${folderName} was updated.${oldShare!==newShare?` Your share changed from ${formatMoney(fromCentavos(oldShare))} to ${formatMoney(fromCentavos(newShare))}.`:before.payerFriendId!==after.payerFriendId?` The default payer changed to ${labels.get(after.payerFriendId)||"another person"}.`:""}`;noticeBatch.set(doc(collection(db,"users",linkedUid,"notifications")),{type:kind,title:before?"Contribution Updated":"New Contribution",message,actorUid:uid,recipientUid:linkedUid,sharedFolderId:folderId,contributionId:ref.id,read:false,createdAt:serverTimestamp()})}
+  await noticeBatch.commit();
   await logActivity(uid, {
     action: contributionId
-      ? "Shared Contribution edited"
+      ? "Contribution Updated"
       : "Shared Contribution created",
     description: `${input.title.trim()} · Created by ${userName}`,
     entityType: "contribution",
     entityId: ref.id,
     folderId,
+    ...(changes.length?{changes}:{}),
   });
 }
 export async function deleteSharedContribution(
@@ -459,10 +462,12 @@ export async function deleteSharedContribution(
     ref = doc(db, "sharedFolders", folderId, "contributions", contributionId),
     snapshot = await getDoc(ref),
     expenses = await getDocs(collection(ref, "expenses")),
+    people=await getDocs(collection(db,"sharedFolders",folderId,"people")),folderSnap=await getDoc(doc(db,"sharedFolders",folderId)),
     batch = writeBatch(db);
   expenses.forEach((item) => batch.delete(item.ref));
   batch.delete(ref);
   await batch.commit();
+  if(snapshot.exists()){const value={id:contributionId,...snapshot.data(),expenses:expenses.docs.map(item=>({id:item.id,...item.data()} as Expense))} as ContributionWithExpenses,affected=new Set([value.payerFriendId,...value.participantIds,...value.expenses.flatMap(item=>item.participantIds)]),notifications=writeBatch(db);for(const person of people.docs){const linkedUid=person.data().linkedUserId;if(!linkedUid||linkedUid===uid||!affected.has(person.id))continue;notifications.set(doc(collection(db,"users",linkedUid,"notifications")),{type:"contribution-removed",title:"Contribution Removed",message:`${value.title} was removed from ${folderSnap.data()?.name||"a shared Folder"}.`,actorUid:uid,recipientUid:linkedUid,sharedFolderId:folderId,contributionId:null,read:false,createdAt:serverTimestamp()})}await notifications.commit()}
   await logActivity(uid, {
     action: "Shared Contribution deleted",
     description: snapshot.data()?.title || "Contribution",

@@ -84,7 +84,11 @@ service cloud.firestore {
       match /notifications/{notificationId} {
         allow read: if isOwner(uid);
         allow create: if signedIn() && request.resource.data.recipientUid == uid && request.resource.data.actorUid == request.auth.uid && (
-          !(request.resource.data.type in ['folder-invitation','folder-invitation-accepted','folder-invitation-declined','folder-invitation-cancelled'])
+          (!(request.resource.data.type in ['contribution-added','contribution-updated','contribution-removed'])
+            || (request.resource.data.sharedFolderId is string
+              && (sharedOwner(request.resource.data.sharedFolderId) || sharedMember(request.resource.data.sharedFolderId))
+              && exists(/databases/$(database)/documents/sharedFolders/$(request.resource.data.sharedFolderId)/members/$(uid))))
+          && (!(request.resource.data.type in ['folder-invitation','folder-invitation-accepted','folder-invitation-declined','folder-invitation-cancelled'])
           || (request.resource.data.folderInvitationId is string
             && getAfter(/databases/$(database)/documents/folderInvitations/$(request.resource.data.folderInvitationId)).data.folderId is string
             && ((request.resource.data.type == 'folder-invitation'
@@ -97,9 +101,28 @@ service cloud.firestore {
               || (request.resource.data.type == 'folder-invitation-cancelled'
                 && getAfter(/databases/$(database)/documents/folderInvitations/$(request.resource.data.folderInvitationId)).data.status == 'cancelled'
                 && getAfter(/databases/$(database)/documents/folderInvitations/$(request.resource.data.folderInvitationId)).data.ownerId == request.auth.uid
-                && getAfter(/databases/$(database)/documents/folderInvitations/$(request.resource.data.folderInvitationId)).data.recipientUid == uid))));
+                && getAfter(/databases/$(database)/documents/folderInvitations/$(request.resource.data.folderInvitationId)).data.recipientUid == uid)))));
         allow update: if isOwner(uid) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
-        allow delete: if false;
+        allow delete: if isOwner(uid)
+          && (!(resource.data.type == 'folder-invitation')
+            || !(resource.data.folderInvitationId is string)
+            || !exists(/databases/$(database)/documents/folderInvitations/$(resource.data.folderInvitationId))
+            || get(/databases/$(database)/documents/folderInvitations/$(resource.data.folderInvitationId)).data.status != 'pending')
+          && (!(resource.data.type == 'account-link-request')
+            || !(resource.data.accountLinkRequestId is string)
+            || !exists(/databases/$(database)/documents/accountLinkRequests/$(resource.data.accountLinkRequestId))
+            || get(/databases/$(database)/documents/accountLinkRequests/$(resource.data.accountLinkRequestId)).data.status != 'pending')
+          && (!(resource.data.type in ['payment-pending','payment-approval-request'])
+            || !(resource.data.settlementRequestId is string)
+            || !exists(/databases/$(database)/documents/settlementRequests/$(resource.data.settlementRequestId))
+            || get(/databases/$(database)/documents/settlementRequests/$(resource.data.settlementRequestId)).data.status != 'pending')
+          && (!(resource.data.type == 'payment-method-review')
+            || !(resource.data.paymentMethodOwnerUid is string)
+            || !(resource.data.paymentMethodFriendId is string)
+            || !(resource.data.paymentMethodId is string)
+            || !exists(/databases/$(database)/documents/users/$(resource.data.paymentMethodOwnerUid)/friends/$(resource.data.paymentMethodFriendId)/paymentMethods/$(resource.data.paymentMethodId))
+            || get(/databases/$(database)/documents/users/$(resource.data.paymentMethodOwnerUid)/friends/$(resource.data.paymentMethodFriendId)/paymentMethods/$(resource.data.paymentMethodId)).data.verificationStatus != 'pending'
+            || get(/databases/$(database)/documents/users/$(resource.data.paymentMethodOwnerUid)/friends/$(resource.data.paymentMethodFriendId)/paymentMethods/$(resource.data.paymentMethodId)).data.reviewVersion != resource.data.paymentMethodReviewVersion);
       }
       match /activities/{activityId} { allow read, write: if isOwner(uid); }
     }

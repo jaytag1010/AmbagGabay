@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { Bell } from "lucide-react";
+import { Bell, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
@@ -11,6 +11,9 @@ import { useAuth } from "@/hooks/useAuth";
 import { useCollectionData } from "@/hooks/useCollectionData";
 import {
   cancelPaymentRequest,
+  clearReadResolvedNotifications,
+  deleteNotification,
+  isNotificationResolved,
   markAllNotificationsRead,
   markNotificationRead,
   respondPaymentRequest,
@@ -31,6 +34,12 @@ import type {
   SettlementRequest,
   PaymentMethod,
 } from "@/types";
+
+function NotificationDelete({notification,uid}:{notification:AppNotification;uid:string}){
+  const [resolved,setResolved]=useState(false),[busy,setBusy]=useState(false);
+  useEffect(()=>{let active=true;void isNotificationResolved(notification).then(value=>{if(active)setResolved(value)}).catch(()=>{if(active)setResolved(false)});return()=>{active=false};},[notification]);
+  return <button className="icon-button notification-delete" disabled={!resolved||busy} title={resolved?"Delete notification":"Resolve this action before deleting the notification"} aria-label={resolved?`Delete “${notification.title}” notification`:`Resolve “${notification.title}” before deleting`} onClick={async event=>{event.stopPropagation();setBusy(true);try{await deleteNotification(uid,notification)}finally{setBusy(false)}}}><Trash2 size={16}/></button>;
+}
 
 function PaymentMethodReviewActions({notification,uid}:{notification:AppNotification;uid:string}){
   const ownerUid=notification.paymentMethodOwnerUid||"",friendId=notification.paymentMethodFriendId||"",[methods,setMethods]=useState<PaymentMethod[]>([]),[open,setOpen]=useState(false),[busy,setBusy]=useState<string|null>(null),[error,setError]=useState<string|null>(null);
@@ -254,6 +263,7 @@ function RequestActions({
   notification: AppNotification;
   uid: string;
 }) {
+  if((notification.type==="contribution-added"||notification.type==="contribution-updated")&&notification.sharedFolderId)return <Link className="button button-secondary" href={`/shared/${notification.sharedFolderId}${notification.contributionId?`?contribution=${notification.contributionId}`:""}`}>Open Contribution</Link>;
   if(notification.type==="payment-method-rejected")return notification.paymentMethodFriendId?<Link className="button button-secondary" href={`/friends/${notification.paymentMethodFriendId}#payment-methods`}>Open Payment Methods</Link>:null;
   if(notification.type==="payment-method-review")return <PaymentMethodReviewActions notification={notification} uid={uid}/>;
   if (notification.accountLinkRequestId)
@@ -268,7 +278,7 @@ function RequestActions({
 export default function NotificationsPage() {
   const { currentUser } = useAuth(),
     uid = currentUser?.uid || "",
-    [tab, setTab] = useState<"all" | "unread">("all"),[marking,setMarking]=useState(false);
+    [tab, setTab] = useState<"all" | "unread">("all"),[marking,setMarking]=useState(false),[clearing,setClearing]=useState(false);
   const subscription = useCallback(
     (next: (items: AppNotification[]) => void, fail: (error: Error) => void) =>
       subscribeNotifications(uid, next, fail),
@@ -296,7 +306,7 @@ export default function NotificationsPage() {
         >
           Unread ({data.items.filter((i) => !i.read).length})
         </button>
-      </div><Button variant="secondary" disabled={marking||!data.items.some(i=>!i.read)} onClick={async()=>{setMarking(true);try{await markAllNotificationsRead(uid,data.items)}finally{setMarking(false)}}}>{marking?"Marking…":"Mark All as Read"}</Button></div>
+      </div><div className="notification-actions"><Button variant="secondary" disabled={marking||!data.items.some(i=>!i.read)} onClick={async()=>{setMarking(true);try{await markAllNotificationsRead(uid,data.items)}finally{setMarking(false)}}}>{marking?"Marking…":"Mark All as Read"}</Button><Button variant="secondary" disabled={clearing||!data.items.some(i=>i.read)} onClick={async()=>{setClearing(true);try{await clearReadResolvedNotifications(uid,data.items)}finally{setClearing(false)}}}>{clearing?"Clearing…":"Clear All Read"}</Button></div></div>
       {data.loading ? <LoadingState /> : <Notice message={data.error} />}{" "}
       {!data.loading && !items.length && (
         <EmptyState
@@ -319,7 +329,7 @@ export default function NotificationsPage() {
                 {item.createdAt?.toDate?.().toLocaleString() || "Just now"}
               </small>
             </div>
-            <RequestActions notification={item} uid={uid} />
+            <div className="notification-row-actions"><RequestActions notification={item} uid={uid} /><NotificationDelete notification={item} uid={uid}/></div>
           </article>
         ))}
       </div>

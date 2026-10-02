@@ -1,10 +1,20 @@
-import { collection, doc, getDoc, onSnapshot, orderBy, query, runTransaction, serverTimestamp, updateDoc, writeBatch } from "firebase/firestore";
+import { collection, deleteDoc, doc, getDoc, onSnapshot, orderBy, query, runTransaction, serverTimestamp, updateDoc, writeBatch } from "firebase/firestore";
 import { requireDb } from "@/lib/firebase";
 import type { AppNotification, SettlementAllocation, SettlementRequest } from "@/types";
 
 export function subscribeNotifications(uid:string,next:(items:AppNotification[])=>void,fail:(error:Error)=>void){return onSnapshot(query(collection(requireDb(),"users",uid,"notifications"),orderBy("createdAt","desc")),snapshot=>next(snapshot.docs.map(item=>({id:item.id,...item.data()}) as AppNotification)),fail)}
 export async function markNotificationRead(uid:string,id:string){await updateDoc(doc(requireDb(),"users",uid,"notifications",id),{read:true})}
 export async function markAllNotificationsRead(uid:string,items:AppNotification[]){const unread=items.filter(item=>!item.read);if(!unread.length)return;const db=requireDb(),batch=writeBatch(db);unread.forEach(item=>batch.update(doc(db,"users",uid,"notifications",item.id),{read:true}));await batch.commit()}
+export async function isNotificationResolved(item:AppNotification){
+ const db=requireDb();
+ if(item.folderInvitationId){const snap=await getDoc(doc(db,"folderInvitations",item.folderInvitationId));return !snap.exists()||snap.data().status!=="pending"}
+ if(item.accountLinkRequestId&&item.type==="account-link-request"){const snap=await getDoc(doc(db,"accountLinkRequests",item.accountLinkRequestId));return !snap.exists()||snap.data().status!=="pending"}
+ if(item.settlementRequestId&&["payment-pending","payment-approval-request"].includes(item.type)){const snap=await getDoc(doc(db,"settlementRequests",item.settlementRequestId));return !snap.exists()||snap.data().status!=="pending"}
+ if(item.type==="payment-method-review"&&item.paymentMethodOwnerUid&&item.paymentMethodFriendId&&item.paymentMethodId){const snap=await getDoc(doc(db,"users",item.paymentMethodOwnerUid,"friends",item.paymentMethodFriendId,"paymentMethods",item.paymentMethodId));return !snap.exists()||snap.data().verificationStatus!=="pending"||Number(snap.data().reviewVersion||0)!==Number(item.paymentMethodReviewVersion||0)}
+ return true;
+}
+export async function deleteNotification(uid:string,item:AppNotification){if(!await isNotificationResolved(item))throw new Error("Resolve this action before deleting the notification.");await deleteDoc(doc(requireDb(),"users",uid,"notifications",item.id))}
+export async function clearReadResolvedNotifications(uid:string,items:AppNotification[]){const eligible=[];for(const item of items.filter(value=>value.read))if(await isNotificationResolved(item))eligible.push(item);if(!eligible.length)return 0;const db=requireDb(),batch=writeBatch(db);eligible.forEach(item=>batch.delete(doc(db,"users",uid,"notifications",item.id)));await batch.commit();return eligible.length}
 export async function requestPayment(input:{requesterUid:string;approverUid:string;requesterName:string;approverName:string;allocations:SettlementAllocation[]}){
  const db=requireDb(), signature=input.allocations.map(a=>`${a.ledger||"private"}_${a.folderId}_${a.contributionId}_${a.fromFriendId}_${a.toFriendId}`).sort().join("__"), ref=doc(db,"settlementRequests",`${input.requesterUid}_${input.approverUid}_${signature}`), amount=Math.abs(input.allocations.reduce((sum,item)=>sum+(item.fromFriendId==="me"?item.amount:-item.amount),0)), batch=writeBatch(db), existing=await getDoc(ref);
  if(existing.exists()&&existing.data().status==="pending") throw new Error("A confirmation request for these contributions is already pending.");

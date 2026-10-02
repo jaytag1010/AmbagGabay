@@ -281,6 +281,9 @@ export interface AppNotification {
     | "payment-method-review"
     | "payment-method-rejected"
     | "payment-method-confirmed"
+    | "contribution-added"
+    | "contribution-updated"
+    | "contribution-removed"
     | "folder-invitation"
     | "folder-invitation-accepted"
     | "folder-invitation-declined"
@@ -296,6 +299,8 @@ export interface AppNotification {
   paymentMethodFriendId?: string | null;
   paymentMethodId?: string | null;
   paymentMethodReviewVersion?: number | null;
+  sharedFolderId?: string | null;
+  contributionId?: string | null;
   folderInvitationId?: string | null;
   read: boolean;
   createdAt: Timestamp;
@@ -307,6 +312,7 @@ export interface ActivityEntry {
   entityType: string;
   entityId?: string;
   folderId?: string;
+  changes?: string[];
   createdAt: Timestamp;
 }
 export type CreateFriendInput = Pick<Friend, "name">;

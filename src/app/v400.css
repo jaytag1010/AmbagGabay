@@ -112,9 +112,11 @@
 .notification-card.unread { border-left: 3px solid var(--brand); border-bottom-color: var(--line); background: color-mix(in srgb, var(--brand) 5%, transparent); padding-left: 10px; }
 .notification-card h2 { font-size: 16px; margin-bottom: 3px; }
 .notification-card small { display: block; margin-top: 5px; }
+.notification-actions,.notification-row-actions{display:flex;align-items:center;gap:8px}.notification-delete{flex:0 0 auto}.notification-delete:disabled{opacity:.35;cursor:not-allowed}
 .activity-card { padding: 13px 5px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; box-shadow: none; }
 .activity-card h2 { font-size: 16px; margin: 2px 0; }
 .activity-card time { font-size: 12px; }
+.activity-changes{margin:9px 0 0;padding-left:19px;color:var(--muted);display:grid;gap:4px;font-size:14px;overflow-wrap:anywhere}
 
 /* Settings behave like settings rows. */
 .settings-grid { gap: 14px; }
@@ -192,3 +194,4 @@
 .payment-review-row { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 12px 2px; border-top: 1px solid var(--line); }
 .payment-review-row p, .payment-review-row small { display: block; margin: 4px 0 0; color: var(--muted); }
 @media(max-width:560px){.payment-review-row{align-items:stretch;display:grid}.payment-review-row .row-actions>*{flex:1}}
+@media(max-width:560px){.notification-actions{display:grid;grid-template-columns:1fr 1fr;width:100%}.notification-row-actions{width:100%;justify-content:flex-end;flex-wrap:wrap}.notification-row-actions>.row-actions{flex:1}.notification-delete{margin-left:auto}}

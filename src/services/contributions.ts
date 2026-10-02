@@ -19,6 +19,7 @@ import type {
 import { cleanName } from "@/utils/format";
 import { logActivity } from "@/services/activities";
 import { formatMoney } from "@/utils/money";
+import { contributionChangeSummary } from "@/utils/contributionChanges";
 const contributionsRef = (uid: string, folderId: string) =>
   collection(requireDb(), "users", uid, "folders", folderId, "contributions");
 function validate(input: ContributionInput) {
@@ -71,9 +72,7 @@ export async function saveContribution(
   const contributionRef = contributionId
     ? doc(contributionsRef(uid, folderId), contributionId)
     : doc(contributionsRef(uid, folderId));
-  const existingExpenses = contributionId
-    ? await getDocs(collection(contributionRef, "expenses"))
-    : null;
+  const [existingContribution,existingExpenses,friends]=contributionId?await Promise.all([getDoc(contributionRef),getDocs(collection(contributionRef,"expenses")),getDocs(collection(db,"users",uid,"friends"))]):[null,null,null];
   const batch = writeBatch(db);
   const now = serverTimestamp();
   batch.set(
@@ -83,7 +82,8 @@ export async function saveContribution(
       date: Timestamp.fromDate(data.date),
       payerFriendId: data.payerFriendId,
       participantIds: data.participantIds,
-      ...(contributionId ? {} : { createdAt: now, createdByUserId: uid, createdByNameSnapshot: creatorName || "User", settlementAnchorFriendId: "me" }),
+      settlementAnchorFriendId: data.payerFriendId,
+      ...(contributionId ? {} : { createdAt: now, createdByUserId: uid, createdByNameSnapshot: creatorName || "User" }),
       updatedAt: now,
     },
     { merge: true },
@@ -97,12 +97,14 @@ export async function saveContribution(
     }),
   );
   await batch.commit();
+  const labels=new Map(friends?.docs.map(item=>[item.id,String(item.data().name)])||[]),after={id:contributionRef.id,...data,date:Timestamp.fromDate(data.date),expenses:data.expenses} as unknown as ContributionWithExpenses,before=existingContribution?.exists()?{id:contributionRef.id,...existingContribution.data(),expenses:existingExpenses!.docs.map(item=>({id:item.id,...item.data()} as Expense))} as ContributionWithExpenses:null,changes=before?contributionChangeSummary(before,after,id=>labels.get(id)||id):undefined;
   await logActivity(uid, {
-    action: contributionId ? "Contribution edited" : "Contribution added",
+    action: contributionId ? "Contribution Updated" : "Contribution added",
     description: `${data.title} · ${formatMoney(data.expenses.reduce((sum, item) => sum + item.amount, 0))}`,
     entityType: "contribution",
     entityId: contributionRef.id,
     folderId,
+    ...(changes?.length?{changes}:{}),
   });
   return contributionRef.id;
 }
