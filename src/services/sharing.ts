@@ -28,6 +28,7 @@ import type {
 import { logActivity } from "@/services/activities";
 import { contributionRoundedShares, formatMoney, fromCentavos, getPairNetBalance } from "@/utils/money";
 import { contributionChangeSummary } from "@/utils/contributionChanges";
+import { sortExpenses } from "@/utils/expenseOrder";
 const sharedId = (uid: string, folderId: string) => `${uid}_${folderId}`;
 async function shareStep<T>(operation:string,path:string,action:()=>Promise<T>){try{return await action()}catch(cause){if(process.env.NODE_ENV==="development")console.error("Folder invitation failed",{operation,path,code:typeof cause==="object"&&cause&&"code" in cause?String(cause.code):"unknown",message:cause instanceof Error?cause.message:String(cause)});throw cause}}
 export async function promotePrivateFolder(
@@ -306,10 +307,10 @@ export function subscribeSharedContributions(
               const contribution = {
                 id: item.id,
                 ...item.data(),
-                expenses: expenses.docs.map(
+                expenses: sortExpenses(expenses.docs.map(
                   (expense) =>
                     ({ id: expense.id, ...expense.data() }) as Expense,
-                ),
+                )),
               } as ContributionWithExpenses;
               contribution.settlementAnchorFriendId = contribution.payerFriendId;
               return contribution;
@@ -330,7 +331,7 @@ export function subscribeSharedContributions(
 export function subscribeSharedSettlements(folderId: string, next: (items: Settlement[]) => void, onError: (error: Error) => void) {
   return onSnapshot(collection(requireDb(), "sharedFolders", folderId, "settlements"), snapshot => next(snapshot.docs.map(item => ({ id: item.id, ...item.data() }) as Settlement)), onError);
 }
-export async function recordSharedSettlement(uid: string, folderId: string, input: { contributionId: string; fromFriendId: string; toFriendId: string; amount: number; contributionTitle: string; expectedPreviouslySettled?: number }) {
+export async function recordSharedSettlement(uid: string, folderId: string, input: { contributionId: string; fromFriendId: string; toFriendId: string; amount: number; contributionTitle: string; expectedPreviouslySettled?: number; receiptKind?: "exact"|"partial" }) {
   const db = requireDb(), id = `${input.contributionId}_${input.fromFriendId}_${input.toFriendId}`, ref = doc(db, "sharedFolders", folderId, "settlements", id);
   await runTransaction(db, async transaction => {
     const current = await transaction.get(ref), prior = current.exists() ? Number(current.data().amount || 0) : 0;
@@ -338,7 +339,7 @@ export async function recordSharedSettlement(uid: string, folderId: string, inpu
     const now = serverTimestamp();
     transaction.set(ref, { folderId, contributionId: input.contributionId, fromFriendId: input.fromFriendId, toFriendId: input.toFriendId, amount: prior + input.amount, source: "individual", executedByUserId: uid, date: now, createdAt: current.exists() ? current.data().createdAt : now, updatedAt: now }, { merge: true });
   });
-  await logActivity(uid, { action: "Shared payment settled", description: `Settled ${input.contributionTitle}`, entityType: "settlement", entityId: id, folderId });
+  await logActivity(uid, { action: input.receiptKind==="partial"?"Partial payment received":"Shared payment settled", description: `${input.contributionTitle} · ${formatMoney(input.amount)}`, entityType: "settlement", entityId: id, folderId });
 }
 export function subscribeSharedPeople(
   folderId: string,
@@ -430,9 +431,10 @@ export async function saveSharedContribution(
     { merge: true },
   );
   existing?.forEach((item) => batch.delete(item.ref));
-  input.expenses.forEach((expense) =>
+  input.expenses.forEach((expense, orderIndex) =>
     batch.set(doc(collection(ref, "expenses")), {
       ...expense,
+      orderIndex,
       createdAt: now,
       updatedAt: now,
     }),

@@ -20,6 +20,7 @@ import { cleanName } from "@/utils/format";
 import { logActivity } from "@/services/activities";
 import { formatMoney } from "@/utils/money";
 import { contributionChangeSummary } from "@/utils/contributionChanges";
+import { sortExpenses } from "@/utils/expenseOrder";
 const contributionsRef = (uid: string, folderId: string) =>
   collection(requireDb(), "users", uid, "folders", folderId, "contributions");
 function validate(input: ContributionInput) {
@@ -89,9 +90,10 @@ export async function saveContribution(
     { merge: true },
   );
   existingExpenses?.docs.forEach((item) => batch.delete(item.ref));
-  data.expenses.forEach((item) =>
+  data.expenses.forEach((item, orderIndex) =>
     batch.set(doc(collection(contributionRef, "expenses")), {
       ...item,
+      orderIndex,
       createdAt: now,
       updatedAt: now,
     }),
@@ -125,10 +127,10 @@ export function subscribeContributions(
               return {
                 id: item.id,
                 ...item.data(),
-                expenses: expenses.docs.map(
+                expenses: sortExpenses(expenses.docs.map(
                   (expense) =>
                     ({ id: expense.id, ...expense.data() }) as Expense,
-                ),
+                )),
               } as ContributionWithExpenses;
             }),
           ),

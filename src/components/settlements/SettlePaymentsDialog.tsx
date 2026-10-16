@@ -7,10 +7,13 @@ import { PayeePaymentMethods } from "@/components/payments/PaymentMethods";
 import type { FolderFinancials, Friend, SettlementAllocation } from "@/types";
 import {
   contributionObligations,
+  fromCentavos,
   formatMoney,
   moneyDirectionClass,
+  settlementIntegrityIssues,
   toCentavos,
 } from "@/utils/money";
+import { oldestFirstAllocations } from "@/utils/settlementAllocation";
 import { recordSettlement } from "@/services/settlements";
 import { notifyReceived, requestPayment } from "@/services/notifications";
 import { getFinancialOverview } from "@/services/financials";
@@ -28,6 +31,11 @@ const pairTotals = (entries: Entry[], currentPersonId = "me") => {
       .filter((e) => e.allocation.fromFriendId === currentPersonId)
       .reduce((s, e) => s + toCentavos(e.allocation.amount), 0);
   return { incoming, outgoing, net: incoming - outgoing };
+};
+const parseCentavos = (value: string) => {
+  if (!/^\d+(?:\.\d{1,2})?$/.test(value.trim())) return null;
+  const [whole, fraction = ""] = value.trim().split(".");
+  return Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
 };
 
 export function SettlePaymentsDialog({
@@ -66,6 +74,10 @@ export function SettlePaymentsDialog({
     [calculated, setCalculated] = useState(false),
     [busy, setBusy] = useState<Record<string, boolean>>({}),
     [completed, setCompleted] = useState<Record<string, string>>({}),
+    [receiveFor, setReceiveFor] = useState<string | null>(null),
+    [receiveMode, setReceiveMode] = useState<"exact" | "partial">("exact"),
+    [partialAmount, setPartialAmount] = useState(""),
+    [receipt, setReceipt] = useState<{person:string;received:number;applied:SettlementAllocation[];remaining:number}|null>(null),
     [message, setMessage] = useState<string | null>(null);
   const scoped = useMemo(
     () =>
@@ -74,6 +86,7 @@ export function SettlePaymentsDialog({
         : financials,
     [financials, folderId],
   );
+  const integrityIssues = useMemo(() => scoped.flatMap(folder => settlementIntegrityIssues(folder.contributions, folder.settlements)), [scoped]);
   const byPerson = useMemo(
     () =>
       new Map(
@@ -110,6 +123,8 @@ export function SettlePaymentsDialog({
                           s.fromFriendId === item.fromFriendId &&
                           s.toFriendId === item.toFriendId,
                       )?.amount || 0,
+                    contributionDate: item.contributionDate,
+                    contributionCreatedAt: folder.contributions.find(value => value.id === item.contributionId)?.createdAt,
                   },
                 })),
             );
@@ -142,10 +157,12 @@ export function SettlePaymentsDialog({
     setSelected({});
     setCalculated(false);
     setCompleted({});
+    setReceiveFor(null);
+    setReceipt(null);
     setMessage(null);
     onClose();
   };
-  async function finalize(personId: string) {
+  async function finalize(personId: string, receivedCentavos?: number) {
     const person = friends.find((item) => item.id === personId),
       entries = chosen(personId),
       { net } = pairTotals(entries, currentPersonId);
@@ -186,6 +203,16 @@ export function SettlePaymentsDialog({
           `Balance changed while this settlement was open. Previous amount: ${formatMoney(Math.abs(net) / 100)}. Current amount: ${formatMoney(Math.abs(currentNet) / 100)}. Review the updated balance before marking it ${net > 0 ? "received" : "paid"}.`,
         );
       }
+      const receivedAllocations = net > 0 && receivedCentavos
+        ? oldestFirstAllocations(refreshedEntries.filter(item => item.allocation.toFriendId === currentPersonId).map(item => item.allocation), receivedCentavos).map(item=>({...item,receiptKind:receivedCentavos<currentNet?"partial" as const:"exact" as const}))
+        : [];
+      const entriesToRecord = receivedAllocations.length
+        ? receivedAllocations.map(allocation => ({
+            ...refreshedEntries.find(item => item.allocation.folderId === allocation.folderId && item.allocation.contributionId === allocation.contributionId && item.allocation.fromFriendId === allocation.fromFriendId && item.allocation.toFriendId === allocation.toFriendId)!,
+            allocation,
+          }))
+        : refreshedEntries;
+      if (net > 0 && receivedCentavos && (receivedCentavos <= 0 || receivedCentavos > currentNet)) throw new Error("The received amount is no longer valid. Review the updated balance.");
       if (!directSettlement && net < 0 && person.linkedUserId) {
         await requestPayment({
           requesterUid: uid,
@@ -196,7 +223,7 @@ export function SettlePaymentsDialog({
         });
         setCompleted((v) => ({ ...v, [personId]: "Pending confirmation" }));
       } else {
-        for (const item of entries)
+        for (const item of entriesToRecord)
           await (recordAllocation ? recordAllocation({
             ...item.allocation,
             expectedPreviouslySettled: item.folder.settlements.find((s) => s.contributionId === item.allocation.contributionId && s.fromFriendId === item.allocation.fromFriendId && s.toFriendId === item.allocation.toFriendId)?.amount || 0,
@@ -213,7 +240,7 @@ export function SettlePaymentsDialog({
               person.linkedUserId && net > 0
                 ? "received"
                 : "nonlinked-executory",
-            description: `Settlement recorded · ${item.allocation.contributionTitle}`,
+            description: `${receivedCentavos && receivedCentavos < currentNet ? "Partial payment received" : "Settlement recorded"} · ${item.allocation.contributionTitle} · ${formatMoney(item.allocation.amount)}`,
             executedByUserId: uid,
           }));
         if (!directSettlement && person.linkedUserId && net > 0)
@@ -221,12 +248,15 @@ export function SettlePaymentsDialog({
             uid,
             person.linkedUserId,
             userName,
-            Math.abs(net) / 100,
+            fromCentavos(receivedCentavos || Math.abs(net)),
+            fromCentavos(Math.max(0, currentNet - (receivedCentavos || currentNet))),
           );
         setCompleted((v) => ({
           ...v,
-          [personId]: net > 0 ? "Received ✓" : "Paid ✓",
+          [personId]: net > 0 && receivedCentavos && receivedCentavos < currentNet ? "Partially received" : net > 0 ? "Received ✓" : "Paid ✓",
         }));
+        if(net>0&&receivedCentavos)setReceipt({person:person.name,received:fromCentavos(receivedCentavos),applied:receivedAllocations,remaining:fromCentavos(Math.max(0,currentNet-receivedCentavos))});
+        setReceiveFor(null);
         await onComplete?.();
       }
     } catch (cause) {
@@ -247,10 +277,14 @@ export function SettlePaymentsDialog({
     sessionOutgoing = people.reduce(
       (sum, id) => sum + pairTotals(chosen(id), currentPersonId).outgoing,
       0,
-    );
-  if (!candidates.length) return <Dialog open={open} wide title="Settle Payments" onClose={reset}><EmptyState title="No outstanding payments to settle" description="All accessible Contribution relationships are currently settled." /></Dialog>;
+    ),
+    receivePerson = receiveFor ? friends.find(item => item.id === receiveFor) : null,
+    receiveNet = receiveFor ? pairTotals(chosen(receiveFor), currentPersonId).net : 0,
+    partialCentavos = parseCentavos(partialAmount),
+    partialValid = partialCentavos !== null && partialCentavos >= 1 && partialCentavos < receiveNet;
+  if (!candidates.length) return <Dialog open={open} wide title="Settle Payments" onClose={reset}>{integrityIssues.length>0&&<Notice message={`${integrityIssues.length} edited Contribution settlement ${integrityIssues.length===1?"record requires":"records require"} review. Historical payments were preserved without creating a negative balance or credit.`}/>}<EmptyState title="No outstanding payments to settle" description="All accessible Contribution relationships are currently settled." /></Dialog>;
   return (
-    <Dialog open={open} wide title="Settle Payments" onClose={reset}>
+    <><Dialog open={open} wide title="Settle Payments" onClose={reset}>
       <div className="settle-workflow">
         <div className="step-indicator">
           <strong>1. People</strong>
@@ -258,6 +292,7 @@ export function SettlePaymentsDialog({
           <strong>3. Results</strong>
         </div>
         <Notice message={message} />
+        {integrityIssues.length > 0 && <Notice message={`${integrityIssues.length} edited Contribution settlement ${integrityIssues.length===1?"record requires":"records require"} review. Historical payments were preserved and were not converted into a new debt or credit.`} />}
         <section>
           <div className="section-heading">
             <div>
@@ -490,7 +525,7 @@ export function SettlePaymentsDialog({
                           providerName={userName}
                         />
                       )}
-                      <Button disabled={busy[id]} onClick={() => finalize(id)}>
+                      <Button disabled={busy[id]} onClick={() => net > 0 ? (setReceiveFor(id),setReceiveMode("exact"),setPartialAmount(""),setReceipt(null)) : finalize(id)}>
                         {net > 0 ? "Received" : "Paid"}
                       </Button>
                     </div>
@@ -505,5 +540,8 @@ export function SettlePaymentsDialog({
         )}
       </div>
     </Dialog>
+    <Dialog open={!!receiveFor||!!receipt} title="Record Payment Received" onClose={()=>{setReceiveFor(null);setReceipt(null)}}>
+      {receipt ? <div className="receive-payment-summary"><p>Received <strong>{formatMoney(receipt.received)}</strong> from {receipt.person}.</p><h3>Applied to</h3><ul>{receipt.applied.map(item=><li key={`${item.folderId}-${item.contributionId}`}><span>{item.contributionTitle}</span><strong>{formatMoney(item.amount)}</strong></li>)}</ul>{receipt.remaining>0?<p className="money-outgoing"><strong>{formatMoney(receipt.remaining)}</strong> remains outstanding.</p>:<p className="money-incoming">Selected obligations are settled.</p>}<div className="dialog-actions"><span/><Button onClick={()=>{setReceipt(null);setReceiveFor(null)}}>Done</Button></div></div> : receivePerson ? <div className="receive-payment-dialog"><Notice message={message}/><p><strong>{receivePerson.name} → You</strong></p><div className="metric"><span>Selected outstanding</span><strong>{formatMoney(fromCentavos(receiveNet))}</strong></div><label className="radio-row"><input type="radio" name="receive-mode" checked={receiveMode==="exact"} onChange={()=>setReceiveMode("exact")}/><span><strong>Exact amount</strong><small>{formatMoney(fromCentavos(receiveNet))}</small></span></label><label className="radio-row"><input type="radio" name="receive-mode" checked={receiveMode==="partial"} onChange={()=>setReceiveMode("partial")}/><span><strong>Partial amount</strong></span></label>{receiveMode==="partial"&&<div><label htmlFor="partial-received">How much did you receive?</label><input id="partial-received" className="input" inputMode="decimal" placeholder="0.00" value={partialAmount} onChange={event=>setPartialAmount(event.target.value)}/><small>Maximum partial amount: {formatMoney(fromCentavos(Math.max(0,receiveNet-1)))}</small>{partialAmount&&partialCentavos!==null&&partialCentavos===receiveNet?<p className="field-error">For the full outstanding balance, choose Exact amount.</p>:partialAmount&&!partialValid?<p className="field-error">Enter an amount from ₱0.01 up to {formatMoney(fromCentavos(Math.max(0,receiveNet-1)))}.</p>:null}</div>}<div className="dialog-actions"><Button variant="secondary" onClick={()=>setReceiveFor(null)}>Cancel</Button><span/><Button disabled={busy[receiveFor!]||(receiveMode==="partial"&&!partialValid)} onClick={()=>finalize(receiveFor!,receiveMode==="exact"?receiveNet:partialCentavos!)}>Confirm Received</Button></div></div> : null}
+    </Dialog></>
   );
 }

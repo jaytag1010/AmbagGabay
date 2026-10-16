@@ -22,19 +22,23 @@ export function contributionObligations(contributions: ContributionWithExpenses[
     let remaining = toCentavos(settlement.amount);
     const matches = obligations.filter(item => item.fromFriendId === settlement.fromFriendId && item.toFriendId === settlement.toFriendId && (!settlement.contributionId || item.contributionId === settlement.contributionId));
     for (const item of matches) { const available = toCentavos(item.amount); const applied = Math.min(available, remaining); item.amount = fromCentavos(available - applied); item.settledAmount = fromCentavos(toCentavos(item.settledAmount) + applied); remaining -= applied; if (!remaining) break; }
-    // A pre-2.6 settlement may have paid a secondary payer directly. Preserve that
-    // history by treating it as simultaneously reducing the participant→anchor
-    // debt and the matching anchor→secondary-payer reimbursement.
-    if (remaining && settlement.contributionId) {
-      const debtor = obligations.find(item => item.contributionId === settlement.contributionId && item.fromFriendId === settlement.fromFriendId),
-        creditor = obligations.find(item => item.contributionId === settlement.contributionId && item.toFriendId === settlement.toFriendId);
-      if (debtor && creditor && debtor !== creditor) {
-        const applied = Math.min(remaining, toCentavos(debtor.amount), toCentavos(creditor.amount));
-        for (const item of [debtor, creditor]) { item.amount = fromCentavos(toCentavos(item.amount) - applied); item.settledAmount = fromCentavos(toCentavos(item.settledAmount) + applied); }
-      }
-    }
+    // Unmatched historical money is intentionally not transferred to another
+    // participant or Contribution after an edit. It remains immutable history.
   }
   return obligations.filter(item => toCentavos(item.amount) > 0);
+}
+export function settlementIntegrityIssues(contributions: ContributionWithExpenses[], settlements: Settlement[] = []) {
+  const titles = new Map(contributions.map(item => [item.id, item.title]));
+  const gross = new Map<string, number>(contributions.flatMap(contribution => centralizedContributionDirections(contribution).map(flow => [`${contribution.id}\u0000${flow.fromFriendId}\u0000${flow.toFriendId}`, toCentavos(flow.amount)])));
+  const totals = new Map<string, number>();
+  for (const settlement of settlements.filter(item => item.contributionId)) {
+    const key = `${settlement.contributionId}\u0000${settlement.fromFriendId}\u0000${settlement.toFriendId}`;
+    totals.set(key, (totals.get(key) || 0) + toCentavos(settlement.amount));
+  }
+  return [...totals].flatMap(([key, settled]) => {
+    const [contributionId] = key.split("\u0000"), obligation = gross.get(key) || 0;
+    return settled > obligation ? [{ contributionId, contributionTitle: titles.get(contributionId) || "Contribution", excessCentavos: settled - obligation }] : [];
+  });
 }
 export interface PairNetBalance { personId:string; counterpartyId:string; incomingCentavos:number; outgoingCentavos:number; netCentavos:number }
 export function getPairNetBalance(contributions:ContributionWithExpenses[],settlements:Settlement[],personId:string,counterpartyId:string):PairNetBalance { let incomingCentavos=0,outgoingCentavos=0;for(const obligation of contributionObligations(contributions,settlements)){const cents=toCentavos(obligation.amount);if(obligation.fromFriendId===counterpartyId&&obligation.toFriendId===personId)incomingCentavos+=cents;else if(obligation.fromFriendId===personId&&obligation.toFriendId===counterpartyId)outgoingCentavos+=cents}return{personId,counterpartyId,incomingCentavos,outgoingCentavos,netCentavos:incomingCentavos-outgoingCentavos} }

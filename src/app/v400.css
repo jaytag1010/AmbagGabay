@@ -117,6 +117,7 @@
 .activity-card h2 { font-size: 16px; margin: 2px 0; }
 .activity-card time { font-size: 12px; }
 .activity-changes{margin:9px 0 0;padding-left:19px;color:var(--muted);display:grid;gap:4px;font-size:14px;overflow-wrap:anywhere}
+.receive-payment-dialog,.receive-payment-summary{display:grid;gap:14px}.radio-row{display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid var(--line);border-radius:var(--radius-sm)}.radio-row span{display:grid;gap:3px}.radio-row small{color:var(--muted)}.receive-payment-dialog>div>label{display:block;margin-bottom:6px;font-weight:600}.receive-payment-dialog .input{width:100%}.field-error{color:var(--danger);font-size:13px;margin-top:6px}.receive-payment-summary ul{list-style:none;padding:0;margin:0;display:grid;gap:8px}.receive-payment-summary li{display:flex;justify-content:space-between;gap:16px;border-bottom:1px solid var(--line);padding-bottom:8px}
 
 /* Settings behave like settings rows. */
 .settings-grid { gap: 14px; }

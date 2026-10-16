@@ -156,6 +156,7 @@ export interface Expense {
   amount: number;
   payerFriendId?: string;
   participantIds: string[];
+  orderIndex?: number;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -168,6 +169,7 @@ export interface ExpenseDraft {
   amount: string;
   payerFriendId: string;
   participantIds: string[];
+  orderIndex?: number;
 }
 export interface ContributionInput {
   title: string;
@@ -179,6 +181,7 @@ export interface ContributionInput {
     amount: number;
     payerFriendId: string;
     participantIds: string[];
+    orderIndex?: number;
   }>;
 }
 export interface SettlementDirection {
@@ -237,6 +240,9 @@ export interface SettlementAllocation {
   ledger?: "private" | "shared";
   storedFromFriendId?: string;
   storedToFriendId?: string;
+  contributionDate?: Timestamp;
+  contributionCreatedAt?: Timestamp;
+  receiptKind?: "exact" | "partial";
 }
 export interface SettlementRequest {
   id: string;
