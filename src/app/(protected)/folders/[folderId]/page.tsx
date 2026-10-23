@@ -572,7 +572,7 @@ export default function FolderDetailPage() {
                   {section.items.map(({ contribution, items, subtotal }) => { const status=expenseStatus(contribution); return (
                     <section className="expense-group" key={contribution.id}>
                       <button type="button" className="expense-group-card" onClick={() => { setFriendBreakdown({ friendId: personId, contributionId: contribution.id }); setPersonId(null); }}>
-                      <header><strong>{contribution.title}</strong><span className={`money-${status.direction}`}>{formatMoney(status.totalCentavos ? fromCentavos(status.remainingCentavos) : subtotal)}</span></header>
+                      <header><strong>{contribution.title}</strong><span className={`money-${status.direction}`}>{formatMoney(status.totalCentavos ? fromCentavos(status.active ? status.remainingCentavos : status.totalCentavos) : subtotal)}</span></header>
                       <small>{formatDate(contribution.date)}</small>
                       {status.partial&&<PartialPaymentStatus paidAmountCentavos={status.paidCentavos} totalAmountCentavos={status.totalCentavos} />}
                       {section.title.startsWith("Settled")&&<small className="settled-badge">✓ Settled</small>}

@@ -59,11 +59,12 @@ export function contributionSettlementProgress(
   const totalCentavos = Math.abs(originalNet);
   const remainingCentavos = Math.min(totalCentavos, Math.abs(remainingNet));
   const paidCentavos = Math.max(totalCentavos - remainingCentavos, 0);
+  const displayDirection = remainingNet || originalNet;
   return {
     totalCentavos,
     paidCentavos,
     remainingCentavos,
-    direction: remainingNet > 0 ? "incoming" : remainingNet < 0 ? "outgoing" : "neutral",
+    direction: displayDirection > 0 ? "incoming" : displayDirection < 0 ? "outgoing" : "neutral",
     active: remainingCentavos > 0,
     partial: paidCentavos > 0 && remainingCentavos > 0,
   };
