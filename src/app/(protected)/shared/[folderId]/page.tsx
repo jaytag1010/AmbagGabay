@@ -2,10 +2,11 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useState } from "react";
-import { ArrowLeft, Plus, Trash2, UserPlus } from "lucide-react";
+import { ArrowLeft, Pencil, Plus, Trash2, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { SettlePaymentsDialog } from "@/components/settlements/SettlePaymentsDialog";
+import { AmbaganSummary } from "@/components/contributions/AmbaganSummary";
 import { Field, SelectField } from "@/components/ui/Field";
 import { EmptyState, LoadingState, Notice } from "@/components/ui/Feedback";
 import { useAuth } from "@/hooks/useAuth";
@@ -66,6 +67,7 @@ export default function SharedFolderPage() {
     friends = useCollectionData(friendsSub),
     groups = useCollectionData(groupsSub),
     [error, setError] = useState<string | null>(null),
+    [detail, setDetail] = useState<ContributionWithExpenses | null>(null),
     [editing, setEditing] = useState<ContributionWithExpenses | "new" | null>(
       null,
     ),
@@ -225,7 +227,7 @@ export default function SharedFolderPage() {
             <article
               className="data-row"
               key={item.id}
-              onClick={() => canEdit && open(item)}
+              onClick={() => setDetail(item)}
             >
               <div>
                 <small>{formatDate(item.date)}</small>
@@ -249,6 +251,9 @@ export default function SharedFolderPage() {
       {tab === "summary" && <div className="summary-grid"><article className="metric"><span>Total Expenses</span><strong>{formatMoney(folderTotal(contributions.items))}</strong></article><article className="metric"><span>Contributions</span><strong>{contributions.items.length}</strong></article><article className="metric"><span>You Paid</span><strong>{formatMoney(currentBalance?.paid || 0)}</strong></article><article className="metric"><span>Your Share</span><strong>{formatMoney(currentBalance?.share || 0)}</strong></article><article className="metric"><span>Current Balance</span><strong className={(currentBalance?.balance || 0) >= 0 ? "money-incoming" : "money-outgoing"}>{formatMoney(Math.abs(currentBalance?.balance || 0))}</strong></article></div>}
       </section>
       {currentPersonId && <SettlePaymentsDialog open={settling} onClose={() => setSettling(false)} uid={uid} userName={auth.currentUser?.displayName || "User"} friends={settlementFriends} financials={[{ folder, contributions: contributions.items, settlements: settlements.items } as FolderFinancials]} folderId={folder.id} currentPersonId={currentPersonId} directSettlement recordAllocation={allocation => recordSharedSettlement(uid, folder.id, allocation)} />}
+      <Dialog open={!!detail} title={detail?.title||"Contribution"} onClose={()=>setDetail(null)}>
+        {detail&&<div className="detail-view"><p>{formatDate(detail.date)} · Paid by {label(detail.payerFriendId)}</p>{detail.createdByUserId&&<p>Created by {detail.createdByUserId===uid?"You":detail.createdByNameSnapshot||"Unknown"}</p>}<h3>{formatMoney(contributionTotal(detail))} total</h3><div className="detail-expenses">{detail.expenses.map(expense=><div key={expense.id}><span>{expense.title}<small>Paid by {label(effectiveExpensePayer(detail,expense))} · {expense.participantIds.length} people</small></span><strong>{formatMoney(expense.amount)}</strong></div>)}</div><div className="actual-total"><span>Actual total</span><strong>{formatMoney(contributionTotal(detail))}</strong></div><AmbaganSummary contribution={detail} labelFor={label}/><div className="dialog-actions"><span/>{canEdit&&<Button variant="secondary" onClick={()=>{const contribution=detail;setDetail(null);open(contribution)}}><Pencil size={17}/> Edit</Button>}<Button onClick={()=>setDetail(null)}>Okay</Button></div></div>}
+      </Dialog>
       <Dialog
         open={proposing}
         title="Propose People"
