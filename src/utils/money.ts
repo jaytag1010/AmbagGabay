@@ -27,6 +27,47 @@ export function contributionObligations(contributions: ContributionWithExpenses[
   }
   return obligations.filter(item => toCentavos(item.amount) > 0);
 }
+export interface ContributionSettlementProgress {
+  totalCentavos: number;
+  paidCentavos: number;
+  remainingCentavos: number;
+  direction: FinancialDirection;
+  active: boolean;
+  partial: boolean;
+}
+/** Centavo-safe progress for one Contribution in the selected person's relationship with Me. */
+export function contributionSettlementProgress(
+  contribution: ContributionWithExpenses,
+  settlements: Settlement[],
+  personId: string,
+  currentPersonId = "me",
+): ContributionSettlementProgress {
+  const isRelevant = (flow: SettlementDirection) =>
+    personId === currentPersonId
+      ? flow.fromFriendId === currentPersonId || flow.toFriendId === currentPersonId
+      : (flow.fromFriendId === currentPersonId && flow.toFriendId === personId) ||
+        (flow.toFriendId === currentPersonId && flow.fromFriendId === personId);
+  const netCentavos = (flows: SettlementDirection[]) =>
+    flows.filter(isRelevant).reduce((net, flow) => {
+      const amount = toCentavos(flow.amount);
+      if (flow.toFriendId === currentPersonId) return net + amount;
+      if (flow.fromFriendId === currentPersonId) return net - amount;
+      return net;
+    }, 0);
+  const originalNet = netCentavos(contributionObligations([contribution], []));
+  const remainingNet = netCentavos(contributionObligations([contribution], settlements));
+  const totalCentavos = Math.abs(originalNet);
+  const remainingCentavos = Math.min(totalCentavos, Math.abs(remainingNet));
+  const paidCentavos = Math.max(totalCentavos - remainingCentavos, 0);
+  return {
+    totalCentavos,
+    paidCentavos,
+    remainingCentavos,
+    direction: remainingNet > 0 ? "incoming" : remainingNet < 0 ? "outgoing" : "neutral",
+    active: remainingCentavos > 0,
+    partial: paidCentavos > 0 && remainingCentavos > 0,
+  };
+}
 export function settlementIntegrityIssues(contributions: ContributionWithExpenses[], settlements: Settlement[] = []) {
   const titles = new Map(contributions.map(item => [item.id, item.title]));
   const gross = new Map<string, number>(contributions.flatMap(contribution => centralizedContributionDirections(contribution).map(flow => [`${contribution.id}\u0000${flow.fromFriendId}\u0000${flow.toFriendId}`, toCentavos(flow.amount)])));
