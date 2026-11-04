@@ -35,6 +35,26 @@ export interface ContributionSettlementProgress {
   active: boolean;
   partial: boolean;
 }
+export function overallContributionSettlementProgress(
+  contribution: ContributionWithExpenses,
+  settlements: Settlement[],
+) {
+  const sum = (values: ContributionObligation[]) =>
+    values.reduce((total, value) => total + toCentavos(value.amount), 0);
+  const totalCentavos = sum(contributionObligations([contribution], []));
+  const remainingCentavos = Math.min(
+    totalCentavos,
+    sum(contributionObligations([contribution], settlements)),
+  );
+  const paidCentavos = Math.max(totalCentavos - remainingCentavos, 0);
+  return {
+    totalCentavos,
+    paidCentavos,
+    remainingCentavos,
+    active: remainingCentavos > 0,
+    partial: paidCentavos > 0 && remainingCentavos > 0,
+  };
+}
 /** Centavo-safe progress for one Contribution in the selected person's relationship with Me. */
 export function contributionSettlementProgress(
   contribution: ContributionWithExpenses,

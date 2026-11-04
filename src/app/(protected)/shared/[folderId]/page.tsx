@@ -1,8 +1,8 @@
 "use client";
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import { useCallback, useState } from "react";
-import { ArrowLeft, Pencil, Plus, Trash2, UserPlus } from "lucide-react";
+import { useParams, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
+import { ArrowLeft, Pencil, Plus, Search as SearchIcon, Trash2, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { SettlePaymentsDialog } from "@/components/settlements/SettlePaymentsDialog";
@@ -38,6 +38,7 @@ type DraftItem = {
 };
 export default function SharedFolderPage() {
   const { folderId } = useParams<{ folderId: string }>(),
+    search = useSearchParams(),
     auth = useAuth(),
     uid = auth.currentUser!.uid,
     accessState = useSharedFolderAccess(folderId, auth.currentUser!.uid),
@@ -83,6 +84,8 @@ export default function SharedFolderPage() {
   const folder = access?.folder || null,
     membership = access?.membership,
     canEdit = access?.canEdit || false;
+  useEffect(()=>{const contributionId=search.get("contribution");if(contributionId&&contributions.items.length)setDetail(contributions.items.find(item=>item.id===contributionId)||null)},[search,contributions.items]);
+  useEffect(()=>{const itemId=search.get("item");if(!detail||!itemId)return;const timer=window.setTimeout(()=>document.getElementById(`search-item-${itemId}`)?.scrollIntoView({block:"center",behavior:"smooth"}),80);return()=>window.clearTimeout(timer)},[detail,search]);
   const pendingRequests = requests.items.filter((item) => item.status === "pending");
   const currentPersonId = people.items.find(item => item.linkedUserId === uid)?.id || (folder?.ownerId === uid ? "me" : ""),
     balances = calculateBalances(contributions.items, settlements.items),
@@ -191,6 +194,9 @@ export default function SharedFolderPage() {
               : `${membership.role[0].toUpperCase() + membership.role.slice(1)} access`}
           </small>
         </div>
+        <Link className="button button-secondary search-launch" href={`/search?folderId=${encodeURIComponent(folderId)}&returnTo=${encodeURIComponent(`/shared/${folderId}`)}`} aria-label="Search">
+          <SearchIcon size={18} /> <span>Search</span>
+        </Link>
         {membership.role === "owner" && (
           <Link
             className="button button-secondary folder-action"
@@ -252,7 +258,7 @@ export default function SharedFolderPage() {
       </section>
       {currentPersonId && <SettlePaymentsDialog open={settling} onClose={() => setSettling(false)} uid={uid} userName={auth.currentUser?.displayName || "User"} friends={settlementFriends} financials={[{ folder, contributions: contributions.items, settlements: settlements.items } as FolderFinancials]} folderId={folder.id} currentPersonId={currentPersonId} directSettlement recordAllocation={allocation => recordSharedSettlement(uid, folder.id, allocation)} />}
       <Dialog open={!!detail} title={detail?.title||"Contribution"} onClose={()=>setDetail(null)}>
-        {detail&&<div className="detail-view"><p>{formatDate(detail.date)} · Paid by {label(detail.payerFriendId)}</p>{detail.createdByUserId&&<p>Created by {detail.createdByUserId===uid?"You":detail.createdByNameSnapshot||"Unknown"}</p>}<h3>{formatMoney(contributionTotal(detail))} total</h3><div className="detail-expenses">{detail.expenses.map(expense=><div key={expense.id}><span>{expense.title}<small>Paid by {label(effectiveExpensePayer(detail,expense))} · {expense.participantIds.length} people</small></span><strong>{formatMoney(expense.amount)}</strong></div>)}</div><div className="actual-total"><span>Actual total</span><strong>{formatMoney(contributionTotal(detail))}</strong></div><AmbaganSummary contribution={detail} labelFor={label}/><div className="dialog-actions"><span/>{canEdit&&<Button variant="secondary" onClick={()=>{const contribution=detail;setDetail(null);open(contribution)}}><Pencil size={17}/> Edit</Button>}<Button onClick={()=>setDetail(null)}>Okay</Button></div></div>}
+        {detail&&<div className="detail-view"><p>{formatDate(detail.date)} · Paid by {label(detail.payerFriendId)}</p>{detail.createdByUserId&&<p>Created by {detail.createdByUserId===uid?"You":detail.createdByNameSnapshot||"Unknown"}</p>}<h3>{formatMoney(contributionTotal(detail))} total</h3><div className="detail-expenses">{detail.expenses.map(expense=><div id={`search-item-${expense.id}`} className={search.get("item")===expense.id?"search-target-highlight":""} key={expense.id}><span>{expense.title}<small>Paid by {label(effectiveExpensePayer(detail,expense))} · {expense.participantIds.length} people</small></span><strong>{formatMoney(expense.amount)}</strong></div>)}</div><div className="actual-total"><span>Actual total</span><strong>{formatMoney(contributionTotal(detail))}</strong></div><AmbaganSummary contribution={detail} labelFor={label}/><div className="dialog-actions"><span/>{canEdit&&<Button variant="secondary" onClick={()=>{const contribution=detail;setDetail(null);open(contribution)}}><Pencil size={17}/> Edit</Button>}<Button onClick={()=>setDetail(null)}>Okay</Button></div></div>}
       </Dialog>
       <Dialog
         open={proposing}

@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Pencil, Plus, Share2, Trash2 } from "lucide-react";
+import { ArrowLeft, Pencil, Plus, Search as SearchIcon, Share2, Trash2 } from "lucide-react";
 import { FriendAvatar } from "@/components/ui/FriendAvatar";
 import { AmbaganSummary } from "@/components/contributions/AmbaganSummary";
 import { SettlePaymentsDialog } from "@/components/settlements/SettlePaymentsDialog";
@@ -107,6 +107,12 @@ export default function FolderDetailPage() {
       setDetail(contributions.items.find((item) => item.id === id) || null);
   }, [search, contributions.items]);
   useEffect(() => {
+    const itemId=search.get("item");
+    if(!detail||!itemId)return;
+    const timer=window.setTimeout(()=>{const target=document.getElementById(`search-item-${itemId}`);target?.scrollIntoView({block:"center",behavior:"smooth"});target?.focus()},80);
+    return()=>window.clearTimeout(timer);
+  },[detail,search]);
+  useEffect(() => {
     if (!detail) return;
     const dismiss = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement;
@@ -184,6 +190,9 @@ export default function FolderDetailPage() {
           <h1>{folder.name}</h1>
         </div>
         <div className="header-actions folder-action">
+          <Link className="button button-secondary search-launch" href={`/search?folderId=${encodeURIComponent(folderId)}&returnTo=${encodeURIComponent(`/folders/${folderId}`)}`} aria-label="Search">
+            <SearchIcon size={18} /> <span>Search</span>
+          </Link>
           <Button variant="secondary" onClick={() => setSettling(true)}>
             Settle Payments
           </Button>
@@ -445,6 +454,8 @@ export default function FolderDetailPage() {
               {detail.expenses.map((expense) => (
                 <button
                   key={expense.id}
+                  id={`search-item-${expense.id}`}
+                  className={search.get("item")===expense.id?"search-target-highlight":""}
                   onClick={() => {
                     setExpenseDetail({
                       contribution: detail,

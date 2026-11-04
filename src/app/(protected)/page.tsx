@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { MoreHorizontal, Plus } from "lucide-react";
+import { MoreHorizontal, Plus, Search } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
 import { EmptyState, LoadingState, Notice } from "@/components/ui/Feedback";
@@ -164,6 +164,9 @@ export default function DashboardPage() {
         description="Keep every shared expense organized by occasion."
         action={
           <div className="header-actions">
+            <Link className="button button-secondary search-launch" href="/search?returnTo=%2F" aria-label="Search">
+              <Search size={18} /> <span>Search</span>
+            </Link>
             <Link className="button button-primary" href="/contributions/new">
               <Plus size={18} /> Add Contribution
             </Link>

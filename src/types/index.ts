@@ -204,6 +204,7 @@ export interface FolderFinancials {
   settlementContext?: {
     kind: "private" | "shared";
     personIds?: Record<string, string>;
+    personNames?: Record<string, string>;
   };
 }
 export interface Settlement {
