@@ -231,6 +231,7 @@ export function SettlePaymentsDialog({
         for (const item of entriesToRecord)
           await (recordAllocation ? recordAllocation({
             ...item.allocation,
+            counterpartyName: person.name,
             expectedPreviouslySettled: item.folder.settlements.find((s) => s.contributionId === item.allocation.contributionId && s.fromFriendId === item.allocation.fromFriendId && s.toFriendId === item.allocation.toFriendId)?.amount || 0,
           }) : recordSettlement(uid, {
             ...item.allocation,
@@ -245,7 +246,8 @@ export function SettlePaymentsDialog({
               person.linkedUserId && net > 0
                 ? "received"
                 : "nonlinked-executory",
-            description: `${receivedCentavos && receivedCentavos < currentNet ? "Partial payment received" : "Settlement recorded"} · ${item.allocation.contributionTitle} · ${formatMoney(item.allocation.amount)}`,
+            description: `${item.allocation.contributionTitle} · ${formatMoney(item.allocation.amount)}`,
+            counterpartyName: person.name,
             executedByUserId: uid,
           }));
         if (!directSettlement && person.linkedUserId && net > 0)

@@ -331,7 +331,7 @@ export function subscribeSharedContributions(
 export function subscribeSharedSettlements(folderId: string, next: (items: Settlement[]) => void, onError: (error: Error) => void) {
   return onSnapshot(collection(requireDb(), "sharedFolders", folderId, "settlements"), snapshot => next(snapshot.docs.map(item => ({ id: item.id, ...item.data() }) as Settlement)), onError);
 }
-export async function recordSharedSettlement(uid: string, folderId: string, input: { contributionId: string; fromFriendId: string; toFriendId: string; amount: number; contributionTitle: string; expectedPreviouslySettled?: number; receiptKind?: "exact"|"partial" }) {
+export async function recordSharedSettlement(uid: string, folderId: string, input: { contributionId: string; fromFriendId: string; toFriendId: string; amount: number; contributionTitle: string; expectedPreviouslySettled?: number; receiptKind?: "exact"|"partial"; counterpartyName?: string }) {
   const db = requireDb(), id = `${input.contributionId}_${input.fromFriendId}_${input.toFriendId}`, ref = doc(db, "sharedFolders", folderId, "settlements", id);
   await runTransaction(db, async transaction => {
     const current = await transaction.get(ref), prior = current.exists() ? Number(current.data().amount || 0) : 0;
@@ -339,7 +339,7 @@ export async function recordSharedSettlement(uid: string, folderId: string, inpu
     const now = serverTimestamp();
     transaction.set(ref, { folderId, contributionId: input.contributionId, fromFriendId: input.fromFriendId, toFriendId: input.toFriendId, amount: prior + input.amount, source: "individual", executedByUserId: uid, date: now, createdAt: current.exists() ? current.data().createdAt : now, updatedAt: now }, { merge: true });
   });
-  await logActivity(uid, { action: input.receiptKind==="partial"?"Partial payment received":"Shared payment settled", description: `${input.contributionTitle} · ${formatMoney(input.amount)}`, entityType: "settlement", entityId: id, folderId });
+  await logActivity(uid, { action: input.receiptKind==="partial"?"Partial payment received":"Shared payment settled", description: `${input.counterpartyName?`${input.counterpartyName} · `:""}${input.contributionTitle} · ${formatMoney(input.amount)}`, entityType: "settlement", entityId: id, folderId });
 }
 export function subscribeSharedPeople(
   folderId: string,

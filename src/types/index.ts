@@ -244,6 +244,7 @@ export interface SettlementAllocation {
   contributionDate?: Timestamp;
   contributionCreatedAt?: Timestamp;
   receiptKind?: "exact" | "partial";
+  counterpartyName?: string;
 }
 export interface SettlementRequest {
   id: string;
