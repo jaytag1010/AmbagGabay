@@ -3,7 +3,13 @@ import { verifyFirebaseIdToken } from "@/lib/firebaseServerAuth";
 
 export const runtime = "nodejs";
 const MAX_QR_RESPONSE_SIZE = 8 * 1024 * 1024;
-const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const ALLOWED_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+  "image/avif",
+]);
 
 export async function POST(request: Request) {
   if (!(await verifyFirebaseIdToken(request)))
@@ -32,8 +38,10 @@ export async function POST(request: Request) {
     const contentType =
       response.headers.get("content-type")?.split(";")[0] || "";
     const declaredSize = Number(response.headers.get("content-length") || 0);
-    if (!response.ok || !ALLOWED_TYPES.has(contentType))
-      throw new Error("ImgBB did not return a supported image.");
+    if (!response.ok)
+      throw new Error(`ImgBB returned HTTP ${response.status}.`);
+    if (!ALLOWED_TYPES.has(contentType))
+      throw new Error(`ImgBB returned unsupported content type ${contentType || "unknown"}.`);
     if (declaredSize > MAX_QR_RESPONSE_SIZE)
       return NextResponse.json(
         { error: "QR image is too large." },
@@ -54,9 +62,17 @@ export async function POST(request: Request) {
         "x-content-type-options": "nosniff",
       },
     });
-  } catch {
+  } catch (cause) {
+    console.error("[QR proxy] ImgBB retrieval failed", {
+      message: cause instanceof Error ? cause.message : "Unknown error",
+    });
     return NextResponse.json(
-      { error: "Unable to retrieve the QR image." },
+      {
+        error:
+          cause instanceof DOMException && cause.name === "TimeoutError"
+            ? "The QR image host took too long to respond. Please retry."
+            : "Unable to retrieve the QR image securely. Please retry.",
+      },
       { status: 502 },
     );
   }

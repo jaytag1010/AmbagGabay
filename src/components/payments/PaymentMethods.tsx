@@ -115,11 +115,14 @@ function QRDialog({
 }) {
   const [imageFailed, setImageFailed] = useState(false),
     [displayUrl, setDisplayUrl] = useState<string | null>(null),
-    [imageLoading, setImageLoading] = useState(false);
+    [imageLoading, setImageLoading] = useState(false),
+    [imageError, setImageError] = useState<string | null>(null),
+    [retry, setRetry] = useState(0);
   useEffect(() => {
     let active = true,
       objectUrl: string | null = null;
     setImageFailed(false);
+    setImageError(null);
     setDisplayUrl(null);
     if (!method?.qrCodeUrl) return;
     try {
@@ -135,23 +138,33 @@ function QRDialog({
     }
     setImageLoading(true);
     void (async () => {
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 25_000);
       try {
         const token = await requireAuth().currentUser?.getIdToken();
-        if (!token) throw new Error();
+        if (!token) throw new Error("Sign in again before viewing this QR code.");
         const response = await fetch("/api/images/qr", {
           method: "POST",
+          signal: controller.signal,
           headers: {
             authorization: `Bearer ${token}`,
             "content-type": "application/json",
           },
           body: JSON.stringify({ url: method.qrCodeUrl }),
         });
-        if (!response.ok) throw new Error();
+        if (!response.ok) {
+          const payload = (await response.json().catch(() => null)) as {error?:string}|null;
+          throw new Error(payload?.error || "Unable to load the QR image securely.");
+        }
         objectUrl = URL.createObjectURL(await response.blob());
         if (active) setDisplayUrl(objectUrl);
-      } catch {
-        if (active) setImageFailed(true);
+      } catch (cause) {
+        if (active) {
+          setImageFailed(true);
+          setImageError(cause instanceof DOMException && cause.name === "AbortError" ? "The secure QR request timed out. Please retry." : cause instanceof Error ? cause.message : "Unable to load the QR image securely.");
+        }
       } finally {
+        window.clearTimeout(timeout);
         if (active) setImageLoading(false);
       }
     })();
@@ -159,7 +172,7 @@ function QRDialog({
       active = false;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [method?.qrCodeUrl]);
+  }, [method?.qrCodeUrl, retry]);
   return (
     <Dialog
       open={!!method}
@@ -209,15 +222,10 @@ function QRDialog({
           )}
           {method.qrCodeUrl && imageFailed && (
             <div className="qr-load-error" role="alert">
-              <p>The QR image could not be displayed in this window.</p>
-              <a
-                className="button button-secondary"
-                href={method.qrCodeUrl}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Open QR Image
-              </a>
+              <p>{imageError || "The QR image could not be displayed securely."}</p>
+              <Button variant="secondary" onClick={() => setRetry(value => value + 1)}>
+                Retry
+              </Button>
             </div>
           )}
           <Button variant="secondary" onClick={onClose}>

@@ -14,6 +14,7 @@ export async function verifyFirebaseIdToken(request: Request) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ idToken: token }),
         cache: "no-store",
+        signal: AbortSignal.timeout(10_000),
       },
     );
     return response.ok;
