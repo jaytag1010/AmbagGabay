@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Dialog } from "@/components/ui/Dialog";
 import { Button } from "@/components/ui/Button";
 import { EmptyState, Notice } from "@/components/ui/Feedback";
@@ -37,6 +37,11 @@ const parseCentavos = (value: string) => {
   const [whole, fraction = ""] = value.trim().split(".");
   return Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
 };
+function SelectionCheckbox({checked,indeterminate,onChange,label,ariaLabel=label}:{checked:boolean;indeterminate:boolean;onChange:()=>void;label:string;ariaLabel?:string}) {
+  const ref=useRef<HTMLInputElement>(null);
+  useEffect(()=>{if(ref.current)ref.current.indeterminate=indeterminate},[indeterminate]);
+  return <label className="check-control settlement-select-control"><input ref={ref} type="checkbox" checked={checked} aria-label={ariaLabel} onChange={onChange}/><span>{label}</span></label>;
+}
 
 export function SettlePaymentsDialog({
   open,
@@ -309,25 +314,6 @@ export function SettlePaymentsDialog({
               <h3>Who do you want to settle with?</h3>
               <p>Only people with outstanding balances are shown.</p>
             </div>
-            {candidates.length > 1 && (
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  setPeople(candidates.map((p) => p.id));
-                  setSelected(
-                    Object.fromEntries(
-                      candidates.map((p) => [
-                        p.id,
-                        (byPerson.get(p.id) || []).map((e) => e.key),
-                      ]),
-                    ),
-                  );
-                  setCalculated(false);
-                }}
-              >
-                Select All Outstanding
-              </Button>
-            )}
           </div>
           <div className="settlement-people">
             {candidates.map((person) => {
@@ -374,21 +360,16 @@ export function SettlePaymentsDialog({
                   <h3>{person.name}</h3>
                   <p>{new Set(picked.map(entry=>entry.folder.folder.id)).size} folders · {picked.length} Contributions selected</p>
                 </div>
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    setSelected((v) => ({
-                      ...v,
-                      [id]: entries.map((e) => e.key),
-                    }));
-                    setCalculated(false);
-                  }}
-                >
-                  Select All Outstanding
-                </Button>
+                <SelectionCheckbox
+                  label={`Mark All`}
+                  ariaLabel={`Select all outstanding Contributions for ${person.name}`}
+                  checked={entries.length>0&&picked.length===entries.length}
+                  indeterminate={picked.length>0&&picked.length<entries.length}
+                  onChange={()=>{setSelected(v=>({...v,[id]:picked.length===entries.length?[]:entries.map(e=>e.key)}));setCalculated(false)}}
+                />
               </div>
               <div className="settlement-contributions">
-                {grouped.map(group => <section className="settlement-folder-group" key={group.folder.id}><div className="settlement-folder-heading"><strong>{group.folder.name}</strong><Button variant="ghost" onClick={()=>{setSelected(value=>({...value,[id]:[...new Set([...(value[id]||[]),...group.entries.map(entry=>entry.key)])]}));setCalculated(false)}}>Select Folder</Button></div>{group.entries.map((entry) => (
+                {grouped.map(group => {const selectedKeys=selected[id]||[],groupPicked=group.entries.filter(entry=>selectedKeys.includes(entry.key));return <section className="settlement-folder-group" key={group.folder.id}><div className="settlement-folder-heading"><SelectionCheckbox label={group.folder.name} checked={groupPicked.length===group.entries.length} indeterminate={groupPicked.length>0&&groupPicked.length<group.entries.length} onChange={()=>{const keys=new Set(selectedKeys);if(groupPicked.length===group.entries.length)group.entries.forEach(entry=>keys.delete(entry.key));else group.entries.forEach(entry=>keys.add(entry.key));setSelected(value=>({...value,[id]:[...keys]}));setCalculated(false)}}/></div>{group.entries.map((entry) => (
                   <label key={entry.key}>
                     <input
                       type="checkbox"
@@ -423,7 +404,7 @@ export function SettlePaymentsDialog({
                       {formatMoney(entry.allocation.amount)}
                     </strong>
                   </label>
-                ))}</section>)}
+                ))}</section>})}
               </div>
               <div className="summary-grid">
                 <article className="metric">

@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
 import { Notice } from "@/components/ui/Feedback";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { PaymentMethodsPanel } from "@/components/payments/PaymentMethods";
 import { useAuth } from "@/hooks/useAuth";
 import { useCollectionData } from "@/hooks/useCollectionData";
 import { subscribeFriends } from "@/services/friends";
@@ -155,6 +156,7 @@ export default function ProfilePage() {
             <Button disabled={busy}>Save profile</Button>
           </form>
         </section>
+        <PaymentMethodsPanel currentUid={user.uid} friend={friends.find(item=>item.isMe)||{id:"me",name:user.displayName||"Me",isMe:true,linkedUserId:null}} />
         <section className="panel">
           <h2>Friend Management</h2>
           <Link className="settings-link" href="/profile/archived-friends">

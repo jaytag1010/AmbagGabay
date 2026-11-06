@@ -234,7 +234,7 @@ export function PaymentMethodsPanel({
   friend,
 }: {
   currentUid: string;
-  friend: Friend;
+  friend: Pick<Friend,"id"|"name"|"isMe"|"linkedUserId">;
 }) {
   const linked = !!friend.linkedUserId && !friend.isMe,
     ownerUid = linked ? friend.linkedUserId! : currentUid,

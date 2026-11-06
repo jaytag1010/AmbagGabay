@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Pencil, Plus, Search as SearchIcon, Share2, Trash2 } from "lucide-react";
 import { FriendAvatar } from "@/components/ui/FriendAvatar";
@@ -40,7 +40,7 @@ const tabs = ["contributions", "expenses", "people", "summary"] as const;
 type Tab = (typeof tabs)[number];
 export default function FolderDetailPage() {
   const { folderId } = useParams<{ folderId: string }>();
-  const search = useSearchParams(),
+  const search = useSearchParams(), pathname=usePathname(), router=useRouter(),
     auth = useAuth(),
     uid = auth.currentUser!.uid;
   const [folder, setFolder] = useState<Folder | null>(),
@@ -63,6 +63,7 @@ export default function FolderDetailPage() {
     [shareSuccess, setShareSuccess] = useState<string | null>(null),
     [settling, setSettling] = useState(false),
     [sharedFolderId, setSharedFolderId] = useState<string | null>(null);
+  const replaceQuery=(changes:Record<string,string|null>)=>{const next=new URLSearchParams(search.toString());Object.entries(changes).forEach(([key,value])=>value===null?next.delete(key):next.set(key,value));router.replace(`${pathname}${next.size?`?${next}`:""}`,{scroll:false})};
   const contributionSub = useCallback(
     (
       next: Parameters<typeof subscribeContributions>[2],
@@ -103,9 +104,9 @@ export default function FolderDetailPage() {
   }, [uid, folderId]);
   useEffect(() => {
     const id = search.get("contribution");
-    if (id && contributions.items.length)
-      setDetail(contributions.items.find((item) => item.id === id) || null);
+    setDetail(id&&contributions.items.length?contributions.items.find((item) => item.id === id) || null:null);
   }, [search, contributions.items]);
+  useEffect(()=>{const requested=search.get("tab");setTab(tabs.includes(requested as Tab)?requested as Tab:"contributions");setSettling(search.get("modal")==="settle")},[search]);
   useEffect(() => {
     const itemId=search.get("item");
     if(!detail||!itemId)return;
@@ -193,7 +194,7 @@ export default function FolderDetailPage() {
           <Link className="button button-secondary search-launch" href={`/search?folderId=${encodeURIComponent(folderId)}&returnTo=${encodeURIComponent(`/folders/${folderId}`)}`} aria-label="Search">
             <SearchIcon size={18} /> <span>Search</span>
           </Link>
-          <Button variant="secondary" onClick={() => setSettling(true)}>
+          <Button variant="secondary" onClick={() => replaceQuery({modal:"settle"})}>
             Settle Payments
           </Button>
           <Button variant="secondary" onClick={() => {setShareError(null);setShareSuccess(null);setSharing(true)}}>
@@ -214,7 +215,7 @@ export default function FolderDetailPage() {
             role="tab"
             aria-selected={tab === item}
             className={tab === item ? "active" : ""}
-            onClick={() => setTab(item)}
+            onClick={() => replaceQuery({tab:item==="contributions"?null:item})}
             key={item}
           >
             {item[0].toUpperCase() + item.slice(1)}
@@ -242,7 +243,7 @@ export default function FolderDetailPage() {
                 <button
                   className="data-row"
                   key={item.id}
-                  onClick={() => setDetail(item)}
+                  onClick={() => replaceQuery({contribution:item.id,item:null})}
                 >
                   <div>
                     <small>{formatDate(item.date)}</small>
@@ -434,7 +435,7 @@ export default function FolderDetailPage() {
       <Dialog
         open={!!detail}
         title={detail?.title || "Contribution"}
-        onClose={() => setDetail(null)}
+        onClose={() => {setDetail(null);replaceQuery({contribution:null,item:null})}}
       >
         {detail && (
           <div className="detail-view">
@@ -488,7 +489,7 @@ export default function FolderDetailPage() {
               >
                 <Pencil size={17} /> Edit
               </Link>
-              <Button onClick={() => setDetail(null)}>Okay</Button>
+              <Button onClick={() => {setDetail(null);replaceQuery({contribution:null,item:null})}}>Okay</Button>
             </div>
           </div>
         )}
@@ -617,7 +618,7 @@ export default function FolderDetailPage() {
           </div>;
         })()}
       </Dialog>
-      <SettlePaymentsDialog open={settling} onClose={()=>setSettling(false)} uid={uid} userName={auth.currentUser?.displayName||"User"} friends={friends.items} financials={[{folder,contributions:contributions.items,settlements}]} folderId={folderId}/>
+      <SettlePaymentsDialog open={settling} onClose={()=>{setSettling(false);replaceQuery({modal:null})}} uid={uid} userName={auth.currentUser?.displayName||"User"} friends={friends.items} financials={[{folder,contributions:contributions.items,settlements}]} folderId={folderId}/>
     </>
   );
 }

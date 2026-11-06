@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { MoreHorizontal, Plus, Search } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -45,7 +46,7 @@ type FolderSort =
 const icons = ["📁", "✈️", "🍽️", "🏠", "🎉", "🛒", "🏖️"];
 export default function DashboardPage() {
   const { currentUser } = useAuth();
-  const uid = currentUser!.uid;
+  const uid = currentUser!.uid, search=useSearchParams(), pathname=usePathname(), router=useRouter();
   const folderSub = useCallback(
     (
       next: Parameters<typeof subscribeFolders>[1],
@@ -84,6 +85,8 @@ export default function DashboardPage() {
     [deleting, setDeleting] = useState<Folder | null>(null),
     [busy, setBusy] = useState(false),
     [message, setMessage] = useState<string | null>(null),[selectedPeople,setSelectedPeople]=useState<string[]>([]),[manualPeople,setManualPeople]=useState<string[]>([]),[selectedGroup,setSelectedGroup]=useState(""),[addingFriends,setAddingFriends]=useState(false),[friendDraft,setFriendDraft]=useState<string[]>([]),[settling,setSettling]=useState(false);
+  const setSettlementOpen=(value:boolean)=>{const next=new URLSearchParams(search.toString());if(value)next.set("modal","settle");else next.delete("modal");router.replace(`${pathname}${next.size?`?${next}`:""}`,{scroll:false})};
+  useEffect(()=>setSettling(search.get("modal")==="settle"),[search]);
   useEffect(()=>{if(!editing)return;const folder=editing==="new"?null:editing,groupId=folder?.defaultFriendGroupId||"",groupIds=groups.items.find(group=>group.id===groupId)?.friendIds||[],people=folder?.participantFriendIds||groupIds;setSelectedGroup(groupId);setSelectedPeople([...new Set(people.filter(id=>id!=="me"))]);setManualPeople(people.filter(id=>!groupIds.includes(id)&&id!=="me"))},[editing,groups.items]);
   useEffect(() => {
     backfillSharedFolderMemberships(uid).catch(() => setMessage("Unable to refresh shared-folder access."));
@@ -173,7 +176,7 @@ export default function DashboardPage() {
             <Button variant="secondary" onClick={() => setEditing("new")}>
               <Plus size={18} /> New folder
             </Button>
-            <Button variant="secondary" onClick={() => setSettling(true)}>Settle Payments</Button>
+            <Button variant="secondary" onClick={() => setSettlementOpen(true)}>Settle Payments</Button>
           </div>
         }
       />
@@ -425,7 +428,7 @@ export default function DashboardPage() {
           </div>
         </form>
       </Dialog>
-      <SettlePaymentsDialog open={settling} onClose={()=>setSettling(false)} uid={uid} userName={currentUser?.displayName||"User"} friends={friends.items} financials={financials} refreshFinancials={()=>getAccessibleFinancialOverview(uid)} recordAllocation={async allocation=>{if(allocation.ledger==="shared")await recordSharedSettlement(uid,allocation.folderId,{...allocation,fromFriendId:allocation.storedFromFriendId||allocation.fromFriendId,toFriendId:allocation.storedToFriendId||allocation.toFriendId});else await recordSettlement(uid,{...allocation,source:"nonlinked-executory",description:`Settled ${allocation.contributionTitle} in ${allocation.folderName||"Folder"}`,executedByUserId:uid});}} onComplete={async()=>setFinancials(await getAccessibleFinancialOverview(uid))}/>
+      <SettlePaymentsDialog open={settling} onClose={()=>{setSettling(false);setSettlementOpen(false)}} uid={uid} userName={currentUser?.displayName||"User"} friends={friends.items} financials={financials} refreshFinancials={()=>getAccessibleFinancialOverview(uid)} recordAllocation={async allocation=>{if(allocation.ledger==="shared")await recordSharedSettlement(uid,allocation.folderId,{...allocation,fromFriendId:allocation.storedFromFriendId||allocation.fromFriendId,toFriendId:allocation.storedToFriendId||allocation.toFriendId});else await recordSettlement(uid,{...allocation,source:"nonlinked-executory",description:`Settled ${allocation.contributionTitle} in ${allocation.folderName||"Folder"}`,executedByUserId:uid});}} onComplete={async()=>setFinancials(await getAccessibleFinancialOverview(uid))}/>
       <Dialog open={addingFriends} title="Add Friends" onClose={()=>setAddingFriends(false)}><div className="friend-selector">{friends.items.filter(friend=>!friend.isMe&&!friend.archived).map(friend=><label key={friend.id}><input type="checkbox" checked={friendDraft.includes(friend.id)} onChange={()=>setFriendDraft(values=>values.includes(friend.id)?values.filter(id=>id!==friend.id):[...values,friend.id])}/><span>{friend.name}</span></label>)}</div><div className="dialog-actions"><Button variant="secondary" onClick={()=>setAddingFriends(false)}>Cancel</Button><span/><Button onClick={()=>{setSelectedPeople([...new Set(friendDraft)]);const groupIds=groups.items.find(group=>group.id===selectedGroup)?.friendIds||[];setManualPeople(friendDraft.filter(id=>!groupIds.includes(id)));setAddingFriends(false)}}>Add Selected</Button></div></Dialog>
       <Dialog
         open={!!deleting}

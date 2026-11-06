@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, Pencil, Plus, Search as SearchIcon, Trash2, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -38,7 +38,7 @@ type DraftItem = {
 };
 export default function SharedFolderPage() {
   const { folderId } = useParams<{ folderId: string }>(),
-    search = useSearchParams(),
+    search = useSearchParams(), pathname=usePathname(), router=useRouter(),
     auth = useAuth(),
     uid = auth.currentUser!.uid,
     accessState = useSharedFolderAccess(folderId, auth.currentUser!.uid),
@@ -81,10 +81,12 @@ export default function SharedFolderPage() {
     [busy, setBusy] = useState(false);
   const [tab, setTab] = useState<"contributions" | "expenses" | "people" | "summary">("contributions"),
     [settling, setSettling] = useState(false);
+  const replaceQuery=(changes:Record<string,string|null>)=>{const next=new URLSearchParams(search.toString());Object.entries(changes).forEach(([key,value])=>value===null?next.delete(key):next.set(key,value));router.replace(`${pathname}${next.size?`?${next}`:""}`,{scroll:false})};
   const folder = access?.folder || null,
     membership = access?.membership,
     canEdit = access?.canEdit || false;
-  useEffect(()=>{const contributionId=search.get("contribution");if(contributionId&&contributions.items.length)setDetail(contributions.items.find(item=>item.id===contributionId)||null)},[search,contributions.items]);
+  useEffect(()=>{const contributionId=search.get("contribution");setDetail(contributionId&&contributions.items.length?contributions.items.find(item=>item.id===contributionId)||null:null)},[search,contributions.items]);
+  useEffect(()=>{const requested=search.get("tab");setTab((["expenses","people","summary"] as const).includes(requested as "expenses"|"people"|"summary")?requested as "expenses"|"people"|"summary":"contributions");setSettling(search.get("modal")==="settle")},[search]);
   useEffect(()=>{const itemId=search.get("item");if(!detail||!itemId)return;const timer=window.setTimeout(()=>document.getElementById(`search-item-${itemId}`)?.scrollIntoView({block:"center",behavior:"smooth"}),80);return()=>window.clearTimeout(timer)},[detail,search]);
   const pendingRequests = requests.items.filter((item) => item.status === "pending");
   const currentPersonId = people.items.find(item => item.linkedUserId === uid)?.id || (folder?.ownerId === uid ? "me" : ""),
@@ -205,7 +207,7 @@ export default function SharedFolderPage() {
             Manage Sharing
           </Link>
         )}
-        <Button variant="secondary" disabled={!canEdit} onClick={() => setSettling(true)}>{canEdit ? "Settle Payments" : "Settle Payments · Read only"}</Button>
+        <Button variant="secondary" disabled={!canEdit} onClick={() => replaceQuery({modal:"settle"})}>{canEdit ? "Settle Payments" : "Settle Payments · Read only"}</Button>
         {canEdit && (
           <Button onClick={() => open("new")}>
             <Plus size={17} /> Add Contribution
@@ -220,7 +222,7 @@ export default function SharedFolderPage() {
           {membership.role !== "owner" && pendingRequests.some(request => request.proposerUid === uid) && <small>Your pending proposals are awaiting the owner’s review.</small>}
         </section>
       )}
-      <div className="tabs" role="tablist">{(["contributions","expenses","people","summary"] as const).map(value => <button role="tab" aria-selected={tab === value} className={tab === value ? "active" : ""} onClick={() => setTab(value)} key={value}>{value[0].toUpperCase() + value.slice(1)}</button>)}</div>
+      <div className="tabs" role="tablist">{(["contributions","expenses","people","summary"] as const).map(value => <button role="tab" aria-selected={tab === value} className={tab === value ? "active" : ""} onClick={() => replaceQuery({tab:value==="contributions"?null:value})} key={value}>{value[0].toUpperCase() + value.slice(1)}</button>)}</div>
       <section className="tab-panel">
       {tab === "contributions" && (!contributions.items.length ? (
         <EmptyState
@@ -233,7 +235,7 @@ export default function SharedFolderPage() {
             <article
               className="data-row"
               key={item.id}
-              onClick={() => setDetail(item)}
+              onClick={() => replaceQuery({contribution:item.id,item:null})}
             >
               <div>
                 <small>{formatDate(item.date)}</small>
@@ -256,9 +258,9 @@ export default function SharedFolderPage() {
       {tab === "people" && (!balances.length ? <EmptyState title="No balances yet" description="Balances will appear after shared expenses are recorded." /> : <div className="list">{balances.map(item => <article className="data-row" key={item.friendId}><div><h2>{label(item.friendId)}</h2><p>Paid {formatMoney(item.paid)} · Share {formatMoney(item.share)}</p></div><strong className={item.balance > 0 ? "money-incoming" : item.balance < 0 ? "money-outgoing" : "money-neutral"}>{item.balance > 0 ? `To receive ${formatMoney(item.balance)}` : item.balance < 0 ? `Owes ${formatMoney(-item.balance)}` : "Settled"}</strong></article>)}</div>)}
       {tab === "summary" && <div className="summary-grid"><article className="metric"><span>Total Expenses</span><strong>{formatMoney(folderTotal(contributions.items))}</strong></article><article className="metric"><span>Contributions</span><strong>{contributions.items.length}</strong></article><article className="metric"><span>You Paid</span><strong>{formatMoney(currentBalance?.paid || 0)}</strong></article><article className="metric"><span>Your Share</span><strong>{formatMoney(currentBalance?.share || 0)}</strong></article><article className="metric"><span>Current Balance</span><strong className={(currentBalance?.balance || 0) >= 0 ? "money-incoming" : "money-outgoing"}>{formatMoney(Math.abs(currentBalance?.balance || 0))}</strong></article></div>}
       </section>
-      {currentPersonId && <SettlePaymentsDialog open={settling} onClose={() => setSettling(false)} uid={uid} userName={auth.currentUser?.displayName || "User"} friends={settlementFriends} financials={[{ folder, contributions: contributions.items, settlements: settlements.items } as FolderFinancials]} folderId={folder.id} currentPersonId={currentPersonId} directSettlement recordAllocation={allocation => recordSharedSettlement(uid, folder.id, allocation)} />}
-      <Dialog open={!!detail} title={detail?.title||"Contribution"} onClose={()=>setDetail(null)}>
-        {detail&&<div className="detail-view"><p>{formatDate(detail.date)} · Paid by {label(detail.payerFriendId)}</p>{detail.createdByUserId&&<p>Created by {detail.createdByUserId===uid?"You":detail.createdByNameSnapshot||"Unknown"}</p>}<h3>{formatMoney(contributionTotal(detail))} total</h3><div className="detail-expenses">{detail.expenses.map(expense=><div id={`search-item-${expense.id}`} className={search.get("item")===expense.id?"search-target-highlight":""} key={expense.id}><span>{expense.title}<small>Paid by {label(effectiveExpensePayer(detail,expense))} · {expense.participantIds.length} people</small></span><strong>{formatMoney(expense.amount)}</strong></div>)}</div><div className="actual-total"><span>Actual total</span><strong>{formatMoney(contributionTotal(detail))}</strong></div><AmbaganSummary contribution={detail} labelFor={label}/><div className="dialog-actions"><span/>{canEdit&&<Button variant="secondary" onClick={()=>{const contribution=detail;setDetail(null);open(contribution)}}><Pencil size={17}/> Edit</Button>}<Button onClick={()=>setDetail(null)}>Okay</Button></div></div>}
+      {currentPersonId && <SettlePaymentsDialog open={settling} onClose={() => {setSettling(false);replaceQuery({modal:null})}} uid={uid} userName={auth.currentUser?.displayName || "User"} friends={settlementFriends} financials={[{ folder, contributions: contributions.items, settlements: settlements.items } as FolderFinancials]} folderId={folder.id} currentPersonId={currentPersonId} directSettlement recordAllocation={allocation => recordSharedSettlement(uid, folder.id, allocation)} />}
+      <Dialog open={!!detail} title={detail?.title||"Contribution"} onClose={()=>{setDetail(null);replaceQuery({contribution:null,item:null})}}>
+        {detail&&<div className="detail-view"><p>{formatDate(detail.date)} · Paid by {label(detail.payerFriendId)}</p>{detail.createdByUserId&&<p>Created by {detail.createdByUserId===uid?"You":detail.createdByNameSnapshot||"Unknown"}</p>}<h3>{formatMoney(contributionTotal(detail))} total</h3><div className="detail-expenses">{detail.expenses.map(expense=><div id={`search-item-${expense.id}`} className={search.get("item")===expense.id?"search-target-highlight":""} key={expense.id}><span>{expense.title}<small>Paid by {label(effectiveExpensePayer(detail,expense))} · {expense.participantIds.length} people</small></span><strong>{formatMoney(expense.amount)}</strong></div>)}</div><div className="actual-total"><span>Actual total</span><strong>{formatMoney(contributionTotal(detail))}</strong></div><AmbaganSummary contribution={detail} labelFor={label}/><div className="dialog-actions"><span/>{canEdit&&<Button variant="secondary" onClick={()=>{const contribution=detail;setDetail(null);replaceQuery({contribution:null,item:null});open(contribution)}}><Pencil size={17}/> Edit</Button>}<Button onClick={()=>{setDetail(null);replaceQuery({contribution:null,item:null})}}>Okay</Button></div></div>}
       </Dialog>
       <Dialog
         open={proposing}
