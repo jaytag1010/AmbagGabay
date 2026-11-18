@@ -8,6 +8,7 @@ import { Dialog } from "@/components/ui/Dialog";
 import { EmptyState, LoadingState, Notice } from "@/components/ui/Feedback";
 import { Field, SelectField } from "@/components/ui/Field";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { Avatar } from "@/components/ui/Avatar";
 import { SettlePaymentsDialog } from "@/components/settlements/SettlePaymentsDialog";
 import { useAuth } from "@/hooks/useAuth";
 import { useCollectionData } from "@/hooks/useCollectionData";
@@ -23,13 +24,14 @@ import {
 } from "@/services/sharing";
 import { subscribeFriendGroups } from "@/services/friendGroups";
 import { subscribeFriends } from "@/services/friends";
+import { subscribeUserProfile } from "@/services/users";
 import {
   createFolder,
   deleteFolder,
   subscribeFolders,
   updateFolder,
 } from "@/services/folders";
-import type { Folder, FolderFinancials, Friend, SharedFolder } from "@/types";
+import type { Folder, FolderFinancials, Friend, SharedFolder, UserProfile } from "@/types";
 import { formatDate } from "@/utils/format";
 import { folderTotal, formatMoney } from "@/utils/money";
 import { alpha, folderMetrics, millis } from "@/utils/sortMetrics";
@@ -76,10 +78,11 @@ export default function DashboardPage() {
     ) => subscribeSharedFolders(uid, next, fail),
     [uid],
   );
+  const profileSub=useCallback((next:(items:UserProfile[])=>void,fail:(error:Error)=>void)=>subscribeUserProfile(uid,value=>next(value?[value]:[]),fail),[uid]);
   const folders = useCollectionData(folderSub),
     groups = useCollectionData(groupSub),
     invitations = useCollectionData(invitationSub),
-    shared = useCollectionData(sharedSub), friends=useCollectionData(friendSub);
+    shared = useCollectionData(sharedSub), friends=useCollectionData(friendSub), profile=useCollectionData(profileSub).items[0];
   const [financials, setFinancials] = useState<FolderFinancials[]>([]),
     [editing, setEditing] = useState<Folder | "new" | null>(null),
     [deleting, setDeleting] = useState<Folder | null>(null),
@@ -165,6 +168,7 @@ export default function DashboardPage() {
       <PageHeader
         title={`Hi, ${currentUser?.displayName?.split(" ")[0] || "there"}`}
         description="Keep every shared expense organized by occasion."
+        profileAction={<Link className="home-profile-avatar" href="/profile" aria-label="Open your profile"><Avatar name={currentUser?.displayName||"User"} photoURL={profile?.photoURL||currentUser?.photoURL}/></Link>}
         action={
           <div className="header-actions">
             <Link className="button button-secondary search-launch" href="/search?returnTo=%2F" aria-label="Search">

@@ -174,7 +174,7 @@ export function SettlePaymentsDialog({
     const person = friends.find((item) => item.id === personId),
       entries = chosen(personId),
       { net } = pairTotals(entries, currentPersonId);
-    if (!person || !entries.length || !net) return;
+    if (!person || !entries.length) return;
     setBusy((v) => ({ ...v, [personId]: true }));
     setMessage(null);
     try {
@@ -211,9 +211,12 @@ export function SettlePaymentsDialog({
           `Balance changed while this settlement was open. Previous amount: ${formatMoney(Math.abs(net) / 100)}. Current amount: ${formatMoney(Math.abs(currentNet) / 100)}. Review the updated balance before marking it ${net > 0 ? "received" : "paid"}.`,
         );
       }
-      const incomingEntries=refreshedEntries.filter(item => item.allocation.toFriendId === currentPersonId),
+      const fullSettlement = net <= 0 || receivedCentavos === currentNet,
+        incomingEntries=refreshedEntries.filter(item => item.allocation.toFriendId === currentPersonId),
         selectedContributionEntries=contributionKeys.length?incomingEntries.filter(item=>contributionKeys.includes(item.key)):[],
-        receivedAllocations = net > 0 && receivedCentavos
+        receivedAllocations = fullSettlement
+        ? refreshedEntries.map(item=>({...item.allocation,receiptKind:"exact" as const}))
+        : net > 0 && receivedCentavos
         ? (selectedContributionEntries.length?selectedContributionEntries.map(item=>item.allocation):oldestFirstAllocations(incomingEntries.map(item => item.allocation), receivedCentavos)).map(item=>({...item,receiptKind:receivedCentavos<currentNet?"partial" as const:"exact" as const}))
         : [];
       const entriesToRecord = receivedAllocations.length
@@ -229,7 +232,7 @@ export function SettlePaymentsDialog({
           approverUid: person.linkedUserId,
           requesterName: userName,
           approverName: person.name,
-          allocations: entries.map((item) => item.allocation),
+          allocations: entriesToRecord.map((item) => item.allocation),
         });
         setCompleted((v) => ({ ...v, [personId]: "Pending confirmation" }));
       } else {
@@ -265,7 +268,7 @@ export function SettlePaymentsDialog({
           );
         setCompleted((v) => ({
           ...v,
-          [personId]: net > 0 && receivedCentavos && receivedCentavos < currentNet ? "Partially received" : net > 0 ? "Received ✓" : "Paid ✓",
+          [personId]: net > 0 && receivedCentavos && receivedCentavos < currentNet ? "Partially received" : net > 0 ? "Received ✓" : net < 0 ? "Paid ✓" : "Settled ✓",
         }));
         if(net>0&&receivedCentavos)setReceipt({person:person.name,received:fromCentavos(receivedCentavos),applied:receivedAllocations,remaining:fromCentavos(Math.max(0,currentNet-receivedCentavos))});
         setReceiveFor(null);
@@ -501,12 +504,12 @@ export function SettlePaymentsDialog({
                     }
                   >
                     {net === 0
-                      ? "No payment is needed"
+                      ? "No cash payment is needed"
                       : net > 0
                         ? `You should receive ${formatMoney(net / 100)}`
                         : `You need to pay ${formatMoney(-net / 100)}`}
                   </h3>
-                  {!completed[id] && net !== 0 && (
+                  {!completed[id] && (
                     <div className="settlement-result-actions">
                       {net < 0 && (
                         <PayeePaymentMethods
@@ -517,7 +520,7 @@ export function SettlePaymentsDialog({
                         />
                       )}
                       <Button disabled={busy[id]} onClick={() => net > 0 ? (setReceiveFor(id),setReceiveMode("full"),setPartialMethod("amount"),setPartialAmount(""),setReceiveContributionKeys([]),setReceipt(null)) : finalize(id)}>
-                        {net > 0 ? "Record Received Payment" : "Paid"}
+                        {net > 0 ? "Record Received Payment" : net < 0 ? "Paid" : "Settle offset"}
                       </Button>
                     </div>
                   )}
@@ -534,7 +537,7 @@ export function SettlePaymentsDialog({
     <Dialog open={!!receiveFor||!!receipt} title="Record Payment Received" onClose={()=>{setReceiveFor(null);setReceipt(null)}}>
       {receipt ? <div className="receive-payment-summary"><p>Received <strong>{formatMoney(receipt.received)}</strong> from {receipt.person}.</p><h3>Applied to</h3><ul>{receipt.applied.map(item=><li key={`${item.folderId}-${item.contributionId}`}><span>{item.contributionTitle}</span><strong>{formatMoney(item.amount)}</strong></li>)}</ul>{receipt.remaining>0?<p className="money-outgoing"><strong>{formatMoney(receipt.remaining)}</strong> remains outstanding.</p>:<p className="money-incoming">Selected obligations are settled.</p>}<div className="dialog-actions"><span/><Button onClick={()=>{setReceipt(null);setReceiveFor(null)}}>Done</Button></div></div> : receivePerson ? <div className="receive-payment-dialog">
         <Notice message={message}/><p><strong>{receivePerson.name} → You</strong></p><div className="metric"><span>Selected outstanding</span><strong>{formatMoney(fromCentavos(receiveNet))}</strong></div>
-        <div className="receive-choice-grid"><label className="radio-row"><input type="radio" name="receive-mode" checked={receiveMode==="full"} onChange={()=>setReceiveMode("full")}/><span><strong>Full Payment</strong><small>Record the complete {formatMoney(fromCentavos(receiveNet))} outstanding balance.</small></span></label><label className="radio-row"><input type="radio" name="receive-mode" checked={receiveMode==="partial"} onChange={()=>setReceiveMode("partial")}/><span><strong>Partial Payment</strong><small>Record an amount or specific Contributions.</small></span></label></div>
+        <div className="receive-choice-grid"><label className="radio-row"><input type="radio" name="receive-mode" checked={receiveMode==="full"} onChange={()=>setReceiveMode("full")}/><span><strong>Full Payment</strong><small>Record the complete {formatMoney(fromCentavos(receiveNet))} net balance and clear every selected obligation, including any offset in the opposite direction.</small></span></label><label className="radio-row"><input type="radio" name="receive-mode" checked={receiveMode==="partial"} onChange={()=>setReceiveMode("partial")}/><span><strong>Partial Payment</strong><small>Record an amount or specific Contributions.</small></span></label></div>
         {receiveMode==="partial"&&<div className="partial-payment-options"><h3>How should the partial payment be recorded?</h3><label className="radio-row"><input type="radio" name="partial-method" checked={partialMethod==="amount"} onChange={()=>setPartialMethod("amount")}/><span><strong>Enter an amount</strong><small>Applied to the oldest selected Contribution first.</small></span></label><label className="radio-row"><input type="radio" name="partial-method" checked={partialMethod==="contributions"} onChange={()=>setPartialMethod("contributions")}/><span><strong>Select Contributions</strong><small>Mark only the chosen Contributions as received.</small></span></label>
           {partialMethod==="amount"?<div><label htmlFor="partial-received">Amount received</label><input id="partial-received" className="input" inputMode="decimal" placeholder="0.00" value={partialAmount} onChange={event=>setPartialAmount(event.target.value)}/><small>Maximum partial amount: {formatMoney(fromCentavos(Math.max(0,receiveNet-1)))}</small>{partialAmount&&partialCentavos!==null&&partialCentavos===receiveNet?<p className="field-error">For the full outstanding balance, choose Full Payment.</p>:partialAmount&&!partialValid?<p className="field-error">Enter an amount from ₱0.01 up to {formatMoney(fromCentavos(Math.max(0,receiveNet-1)))}.</p>:null}</div>:<div className="receive-contribution-list">{receiveEntries.map(item=><label key={item.key}><input type="checkbox" checked={receiveContributionKeys.includes(item.key)} onChange={()=>setReceiveContributionKeys(values=>values.includes(item.key)?values.filter(key=>key!==item.key):[...values,item.key])}/><span><strong>{item.allocation.contributionTitle}</strong><small>{item.folder.folder.name}</small></span><strong>{formatMoney(item.allocation.amount)}</strong></label>)}{receiveContributionKeys.length>0&&!contributionSelectionValid&&<p className="field-error">The selected Contributions must total less than the full outstanding balance. Choose Full Payment to record everything.</p>}<p><span>Selected</span> <strong>{formatMoney(fromCentavos(selectedContributionCentavos))}</strong></p></div>}
         </div>}
